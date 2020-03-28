@@ -1,0 +1,5 @@
+1. Training model
+python main.py -mo train -mn MobileNet_V2
+
+2. Testing model
+python main.py -mo test -mn MobileNet_V2
