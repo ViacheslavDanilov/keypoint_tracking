@@ -8,6 +8,7 @@ import argparse
 import numpy as np
 from tqdm import tqdm
 from glob import glob
+import seaborn as sns
 import tensorflow as tf
 import tensorflow_hub as hub
 from datetime import datetime
@@ -20,11 +21,11 @@ from tensorflow.keras.callbacks import EarlyStopping, CSVLogger, ModelCheckpoint
 from utils import get_random_dcm, f1_loss, macro_f1, get_timing, perfomance_grid
 
 # --------------------------------------------------- Main parameters --------------------------------------------------
-MODE = 'test'
+MODE = 'train'
 MODEL_NAME = 'MobileNet_V2'
 BATCH_SIZE = 64
 LR = 1e-5
-EPOCHS = 2
+EPOCHS = 5
 OPTIMIZER = 'radam'
 CLASS_LOSS = 'bce'
 CLASS_WEIGHT = 1.
@@ -37,17 +38,22 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 BUFFER_SIZE = 1000
 IS_TRAINABLE = False
 VERBOSE = 1
-# TEST_FILES = ['data/video/007.avi']
-# TEST_FILES = ['data/img/001_025.png', 'data/img/002_028.png', 'data/img/003_032.png', 'data/img/004_016.png']
-TEST_FILES = glob('data/img/*' + '004' + '_*')
 TEST_MODEL_DIR = 'models/MobileNet_V2_2703_2250'
-CLASS_NAMES = ['AA1', 'AA2', 'STJ1', 'STJ2', 'CD', 'CM', 'CP', 'CT', 'PT', 'FE1', 'FE2']
+palette = sns.color_palette("pastel", n_colors=11)  # hls, Set2, Set3, Paired, pastel
+TEST_FILES = ['data/img/001_025.png', 'data/img/002_028.png', 'data/img/003_032.png', 'data/img/004_016.png']
+# TEST_FILES = ['data/video/007.avi']
+# TEST_FILES = glob('data/img/*' + '004' + '_*')
+CALLBACK_IMAGES = ['data/img/001_025.png', 'data/img/002_028.png', 'data/img/003_032.png', 'data/img/004_016.png',
+                   'data/img/005_024.png', 'data/img/006_025.png', 'data/img/007_020.png', 'data/img/008_046.png',
+                   'data/img/009_022.png', 'data/img/010_025.png', 'data/img/011_040.png', 'data/img/012_030.png',
+                   'data/img/013_042.png', 'data/img/013_141.png', 'data/img/014_050.png', 'data/img/014_110.png',
+                   'data/img/015_040.png', 'data/img/016_070.png', 'data/img/016_180.png', 'data/img/017_103.png']
+LABEL_NAMES = ['AA1', 'AA2', 'STJ1', 'STJ2', 'CD', 'CM', 'CP', 'CT', 'PT', 'FE1', 'FE2']
 POINT_NAMES = ['AA1_x', 'AA1_y', 'AA2_x', 'AA2_y', 'STJ1_x', 'STJ1_y', 'STJ2_x', 'STJ2_y', 'CD_x', 'CD_y',
                'CM_x', 'CM_y', 'CP_x', 'CP_y', 'CT_x', 'CT_y', 'PT_x', 'PT_y', 'FE1_x', 'FE1_y', 'FE2_x', 'FE2_y']
-POINT_COLORS = {'AA1': (247/255, 6/255, 0/255), 'AA2': (253/255, 1/255, 246/255), 'STJ1': (1/255, 253/255, 132/255),
-                'STJ2': (0/255, 16/255, 247/255), 'CD': (255/255, 247/255, 0/255), 'CM': (0/255, 250/255, 247/255),
-                'CP': (249/255, 157/255, 0/255), 'CT': (126/255, 211/255, 33/255), 'PT': (64/255, 53/255, 182/255),
-                'FE1': (107/255, 123/255, 245/255), 'FE2': (216/255, 36/255, 240/255)}
+POINT_COLORS = {'AA1': palette[0], 'AA2':  palette[1], 'STJ1':  palette[2], 'STJ2':  palette[3],
+                'CD':  palette[4], 'CM':  palette[5], 'CP':  palette[6], 'CT':  palette[7], 'PT':  palette[8],
+                'FE1':  palette[9], 'FE2':  palette[10]}
 if 'MobileNet_V2' or 'ResNet_V2' in MODEL_NAME:
     IMG_SIZE = (224, 224, 3)
 elif 'Inception_V3' or 'Inception_ResNet_v2' in MODEL_NAME:
@@ -59,7 +65,9 @@ else:
 
 # -------------------------------------------- Initialize ArgParse container -------------------------------------------
 parser = argparse.ArgumentParser(description='Keypoint tracking and classification')
-if MODE == 'train':
+parser.add_argument('-mo', '--mode', metavar='', default=MODE, type=str, help='mode: train or test')
+args = parser.parse_args()
+if args.mode == 'train':
     parser.add_argument('-mn', '--model_name', metavar='', default=MODEL_NAME, type=str, help='architecture of the model')
     parser.add_argument('-opt', '--optimizer', metavar='', default=OPTIMIZER, type=str, help='type of an optimizer')
     parser.add_argument('-clo', '--class_loss', metavar='', default=CLASS_LOSS, type=str, help='classification loss')
@@ -72,17 +80,105 @@ if MODE == 'train':
     parser.add_argument('-bus', '--buffer_size', metavar='', default=BUFFER_SIZE, type=int, help='buffer size')
     parser.add_argument('-ist', '--is_trainable', action='store_true', default=IS_TRAINABLE, help='whether to train backbone')
     parser.add_argument('--img_size', metavar='', default=IMG_SIZE, type=int, help='image size')
-elif MODE == 'test':
+    parser.add_argument('--callback_images', metavar='', default=CALLBACK_IMAGES, type=list, help='images for callback prediction')
+elif args.mode == 'test':
     parser.add_argument('-tmd', '--test_model_dir', metavar='', default=TEST_MODEL_DIR, type=str, help='model directory for testing mode')
     parser.add_argument('-tf', '--test_files', nargs='+', metavar='', default=TEST_FILES, type=str, help='list of tested images')
     parser.add_argument('-ver', '--verbose', metavar='', default=VERBOSE, type=int, help='verbosity mode')
-    parser.add_argument('-pc', '--point_colors', metavar='', default=POINT_COLORS, type=dict, help='point colors')
 else:
     raise ValueError('Incorrect MODE value, please check it!')
-parser.add_argument('--class_names', metavar='', default=CLASS_NAMES, type=list, help='list of class names')
+parser.add_argument('--point_colors', metavar='', default=POINT_COLORS, type=dict, help='point colors')
+parser.add_argument('--label_names', metavar='', default=LABEL_NAMES, type=list, help='list of label names')
 parser.add_argument('--point_names', metavar='', default=POINT_NAMES, type=list, help='list of point names')
-
 args = parser.parse_args()
+
+# -------------------------------------------- Callback for saving images ----------------------------------------------
+class ImageSaver(tf.keras.callbacks.Callback):
+    def __init__(self, save_images, save_dir, draw_gt):
+        data_processor = DataProcessor()
+        self.net = Net()
+        self.save_images = save_images
+        self.imgs = data_processor.process_images(paths=save_images,
+                                                  img_height=args.img_size[0],
+                                                  img_width=args.img_size[1],
+                                                  img_channels=args.img_size[2])
+        self.save_dir = os.path.join(args.train_model_dir, save_dir)
+        if not os.path.isdir(self.save_dir):
+            os.makedirs(self.save_dir)
+        self.draw_gt = draw_gt
+        source_df = pandas.read_excel(DATA_PATH, index_col=None, na_values=['NA'], usecols="C:AM")
+
+        self.gt_labels = []
+        self.gt_probs = []
+        self.gt_coords = []
+        for img_path in save_images:
+            gt_img_idx = int(source_df[source_df['Path'] == img_path].index.values)
+
+            # Get GT values
+            gt_label_probs = source_df.loc[gt_img_idx, args.label_names]
+            gt_label_probs = gt_label_probs.to_numpy(dtype=np.float32)
+            gt_label_probs = np.expand_dims(gt_label_probs, axis=0)
+            out_bin = gt_label_probs == 1.0
+
+            gt_point_coords = source_df.loc[gt_img_idx, args.point_names]
+            gt_point_coords = gt_point_coords.to_numpy(dtype=np.float32)
+            gt_point_coords = np.expand_dims(gt_point_coords, axis=0)
+
+            # Get classification labels
+            mlb = MultiLabelBinarizer(classes=args.label_names)
+            mlb.fit(y=args.label_names)
+            gt_labels = mlb.inverse_transform(yt=out_bin)
+            gt_labels = list(gt_labels[0])
+
+            # Get points coordinates
+            x_coords = np.zeros((1, gt_label_probs.shape[1]), dtype=np.float)
+            y_coords = np.zeros((1, gt_label_probs.shape[1]), dtype=np.float)
+            for i in range(gt_label_probs.shape[1]):
+                x_coords[0, i] = gt_point_coords[0, 2 * i]
+                y_coords[0, i] = gt_point_coords[0, 2 * i + 1]
+
+            # Get remaining classification probabilities
+            deleted_points = np.argwhere(out_bin == False)
+            deleted_points = list(deleted_points[:, 1])
+            gt_label_probs = np.delete(gt_label_probs, deleted_points)
+            gt_label_probs = np.round(gt_label_probs, decimals=2)
+            gt_label_probs = np.expand_dims(gt_label_probs, axis=0)
+
+            # Get remaining points coordinates
+            x_coords = x_coords[out_bin]
+            x_coords = np.expand_dims(x_coords, axis=0)
+            y_coords = y_coords[out_bin]
+            y_coords = np.expand_dims(y_coords, axis=0)
+            gt_point_coords = np.concatenate((x_coords, y_coords))
+            gt_point_coords = np.round(gt_point_coords, decimals=0)
+            gt_point_coords = gt_point_coords.astype(int)
+
+            self.gt_labels.append(gt_labels)
+            self.gt_probs.append(gt_label_probs)
+            self.gt_coords.append(gt_point_coords)
+
+    def on_epoch_end(self, epoch, logs=None):
+        model_probs = self.model.predict(self.imgs)
+        images, pred_labels, pred_probs, pred_coords = self.net.process_predictions(model_output=model_probs, test_files=self.save_images,
+                                                                                    thresh_class=0.5, thresh_x=0.01, thresh_y=0.01)
+        for idx, image in enumerate(images):
+            pred_label = pred_labels[idx]
+            pred_prob = pred_probs[idx]
+            pred_coord = pred_coords[idx]
+            gt_label = self.gt_labels[idx]
+            gt_prob = self.gt_probs[idx]
+            gt_coord = self.gt_coords[idx]
+
+            if self.draw_gt:
+                image = self.net.put_points_on_image(image, gt_label, gt_prob, gt_coord,
+                                                     shape='square', add_label=False, add_prob=False)
+            image = self.net.put_points_on_image(image, pred_label, pred_prob, pred_coord,
+                                                 shape='circle', add_label=True, add_prob=True)
+            img_name = os.path.basename(self.save_images[idx])
+            img_name, img_ext = os.path.splitext(img_name)[0], os.path.splitext(img_name)[1]
+            save_name = img_name + '_epoch=' + str(epoch).zfill(3) + img_ext
+            save_path = os.path.join(self.save_dir, save_name)
+            cv2.imwrite(save_path, 255*image)
 
 # ------------------------------------------ Data processing and prefetching -------------------------------------------
 class DataProcessor():
@@ -112,7 +208,7 @@ class DataProcessor():
         # TODO: delete nrows for the full dataset
         source_df = pandas.read_excel(path_to_data, index_col=None, na_values=['NA'], usecols="B:AM", nrows=1752)
         path_df = source_df['Path']
-        class_df = source_df[args.class_names]
+        class_df = source_df[args.label_names]
         point_df = source_df[args.point_names]
         # Debugging only
         # path = path_df[0:5]
@@ -146,6 +242,7 @@ class DataProcessor():
             # self.visualize(img_input, img_output)
             # self.visualize(img_norm, img_output)
         proc_time = time.time() - start
+        print('-' * 100)
         print('Total pre-processing time.....: {:1.3f} seconds'.format(proc_time))
         print('Average pre-processing time...: {:1.3f} seconds per image'.format(proc_time / img_inputs.shape[0]))
         print('Average pre-processing FPS....: {:1.1f} frames per second'.format(1. / (proc_time / img_inputs.shape[0])))
@@ -249,8 +346,7 @@ class Net:
             f.write(model.to_json())
         end = time.time()
         img_path = os.path.join(args.train_model_dir, args.model_name + '.png')
-        # TODO: Graphviz
-        # tf.keras.utils.plot_model(model, to_file=img_path, show_shapes=True)
+        tf.keras.utils.plot_model(model, to_file=img_path, show_shapes=True)
         print('Saving of the model architecture takes ({:1.3f} seconds)'.format(end - start))
         print('-' * 100)
 
@@ -299,7 +395,7 @@ class Net:
         hub_layer = hub.KerasLayer(handle=model_url, trainable=args.is_trainable, name=args.model_name)
         output = hub_layer(img_input)
         class_layer = layers.Dense(1024, activation='relu', name='classifier')(output)
-        class_output = layers.Dense(len(args.class_names), activation='sigmoid', name='class')(class_layer)
+        class_output = layers.Dense(len(args.label_names), activation='sigmoid', name='class')(class_layer)
         point_layer = layers.Dense(1024, activation='relu', name='regressor')(output)
         point_output = layers.Dense(len(args.point_names), activation='sigmoid', name='point')(point_layer)
         model = models.Model(inputs=img_input, outputs=[class_output, point_output], name=args.model_name)
@@ -321,7 +417,7 @@ class Net:
             raise ValueError('Incorrect POINT_LOSS value, please change it!')
 
         class_metrics = [macro_f1,
-                         tfa.metrics.F1Score(num_classes=len(args.class_names), average='micro', threshold=0.5, name='micro_f1'),
+                         tfa.metrics.F1Score(num_classes=len(args.label_names), average='micro', threshold=0.5, name='micro_f1'),
                          metrics.BinaryAccuracy(name='accuracy', threshold=0.5),
                          metrics.Precision(top_k=None, thresholds=0.5, name='precision'),
                          metrics.Recall(top_k=None, thresholds=0.5, name='recall'),
@@ -397,6 +493,7 @@ class Net:
         wandb.config.update(params)
 
         # -------------------------------------------  Initialize callbacks --------------------------------------------
+        img_saver = ImageSaver(save_images=args.callback_images, save_dir='predictions_per_epoch', draw_gt=True)
         csv_logger = CSVLogger(os.path.join(args.train_model_dir, 'logs.csv'), separator=',', append=False)
         check_pointer = ModelCheckpoint(filepath=os.path.join(args.train_model_dir, 'weights.h5'),
                                         monitor='val_loss',
@@ -454,7 +551,7 @@ class Net:
         history = model.fit(x=train_ds,
                             epochs=args.epochs,
                             validation_data=val_ds,
-                            callbacks=[csv_logger, wb_logger, check_pointer, earlystop])
+                            callbacks=[csv_logger, wb_logger, img_saver, check_pointer, earlystop])
         end = time.time()
         print('\nTraining of the model took: {}'.format(get_timing(end - start)))
 
@@ -486,7 +583,7 @@ class Net:
         print('-' * 100)
 
         # --------------------- Performance table of the model with different levels of threshold ----------------------
-        perfomance_grid(ds=val_ds, target=y_val, label_names=args.class_names, model=model, save_dir=args.train_model_dir)
+        perfomance_grid(ds=val_ds, target=y_val, label_names=args.label_names, model=model, save_dir=args.train_model_dir)
 
     def test_model(self, test_model_dir, test_files):
         # -------------------------------------- Getting of a YAML configuration ---------------------------------------
@@ -526,8 +623,8 @@ class Net:
                                                     img_channels=args.img_size[2])
 
         # -------------------------- Generate prediction and process probabilities and label ---------------------------
-        mlb = MultiLabelBinarizer(classes=args.class_names)
-        mlb.fit(y=args.class_names)
+        mlb = MultiLabelBinarizer(classes=args.label_names)
+        mlb.fit(y=args.label_names)
         start = time.time()
         model_probs = model.predict(img_out)
         pred_time = time.time() - start
@@ -537,58 +634,58 @@ class Net:
         print('-' * 100)
         return model_probs
 
-    def process_predictions(self, model_output, thresh_class, thresh_x, thresh_y):
-            batch_class_probs = []
+    def process_predictions(self, model_output, test_files, thresh_class, thresh_x, thresh_y):
             batch_labels = []
+            batch_label_probs = []
             batch_point_coords = []
             start = time.time()
 
             data_processor = DataProcessor()
-            if args.test_files[0].endswith('avi'):
-                batch_images = data_processor.process_video(path=args.test_files,
+            if test_files[0].endswith('avi'):
+                batch_images = data_processor.process_video(path=test_files,
                                                             img_height=1000,
                                                             img_width=1000,
                                                             img_channels=3)
             else:
-                batch_images = data_processor.process_images(paths=args.test_files,
+                batch_images = data_processor.process_images(paths=test_files,
                                                              img_height=1000,
                                                              img_width=1000,
                                                              img_channels=3)
             num_files = batch_images.shape[0]
             img_size = [batch_images.shape[1], batch_images.shape[2], batch_images.shape[3]]
             for idx in range(num_files):
-                inp_class_probs = model_output[0][idx]
-                inp_class_probs = np.expand_dims(inp_class_probs, axis=0)
+                inp_label_probs = model_output[0][idx]
+                inp_label_probs = np.expand_dims(inp_label_probs, axis=0)
                 inp_point_coords = model_output[1][idx]
                 inp_point_coords = np.expand_dims(inp_point_coords, axis=0)
 
-                if 2 * inp_class_probs.shape[1] != inp_point_coords.shape[1]:
+                if 2 * inp_label_probs.shape[1] != inp_point_coords.shape[1]:
                     raise ValueError('Number of classes and coordinates must be equal!')
 
                 # Get a list of the remaining points
-                inp_class_bin = inp_class_probs > thresh_class
-                x_coords = np.zeros((1, inp_class_probs.shape[1]), dtype=np.float)
-                y_coords = np.zeros((1, inp_class_probs.shape[1]), dtype=np.float)
-                for i in range(inp_class_probs.shape[1]):
+                inp_label_bin = inp_label_probs > thresh_class
+                x_coords = np.zeros((1, inp_label_probs.shape[1]), dtype=np.float)
+                y_coords = np.zeros((1, inp_label_probs.shape[1]), dtype=np.float)
+                for i in range(inp_label_probs.shape[1]):
                     x_coords[0, i] = inp_point_coords[0, 2 * i]
                     y_coords[0, i] = inp_point_coords[0, 2 * i + 1]
                 x_coords_bin = x_coords > thresh_x
                 y_coords_bin = y_coords > thresh_y
                 inp_point_bin = np.logical_and(x_coords_bin, y_coords_bin)
-                out_bin = np.logical_and(inp_class_bin, inp_point_bin)
+                out_bin = np.logical_and(inp_label_bin, inp_point_bin)
 
                 # Get classification labels
-                mlb = MultiLabelBinarizer(classes=args.class_names)
-                mlb.fit(y=args.class_names)
-                out_class_labels = mlb.inverse_transform(yt=out_bin)
-                out_class_labels = list(out_class_labels[0])
+                mlb = MultiLabelBinarizer(classes=args.label_names)
+                mlb.fit(y=args.label_names)
+                out_labels = mlb.inverse_transform(yt=out_bin)
+                out_labels = list(out_labels[0])
 
                 # Get classification probabilities
                 deleted_points = np.argwhere(out_bin == False)
                 deleted_points = list(deleted_points[:, 1])
-                out_class_probs = np.delete(inp_class_probs, deleted_points)
-                out_class_probs = np.round(out_class_probs, decimals=2)
-                out_class_probs = np.expand_dims(out_class_probs, axis=0)
+                out_label_probs = np.delete(inp_label_probs, deleted_points)
+                out_label_probs = np.round(out_label_probs, decimals=2)
+                out_label_probs = np.expand_dims(out_label_probs, axis=0)
 
                 # Get regression coordinates
                 x_coords *= img_size[0]
@@ -601,17 +698,17 @@ class Net:
                 out_point_coords = np.round(out_point_coords, decimals=0)
                 out_point_coords = out_point_coords.astype(int)
 
-                batch_class_probs.append(out_class_probs)
-                batch_labels.append(out_class_labels)
+                batch_labels.append(out_labels)
+                batch_label_probs.append(out_label_probs)
                 batch_point_coords.append(out_point_coords)
             proc_time = time.time() - start
             print('Total post-processing time.....: {:1.3f} seconds'.format(proc_time))
-            print('Average post-processing time...: {:1.3f} seconds per image'.format(proc_time / len(args.test_files)))
-            print('Average post-processing FPS....: {:1.1f} frames per second'.format(1. / (proc_time / len(args.test_files))))
+            print('Average post-processing time...: {:1.3f} seconds per image'.format(proc_time / len(test_files)))
+            print('Average post-processing FPS....: {:1.1f} frames per second'.format(1. / (proc_time / len(test_files))))
             print('-' * 100)
-            return batch_images, batch_class_probs, batch_labels, batch_point_coords
+            return batch_images, batch_labels, batch_label_probs, batch_point_coords
 
-    def show_predictions(self, images, labels, probs, coords, verbose, save_dir, add_label, add_prob):
+    def show_predictions(self, images, labels, probs, coords, verbose, save_dir, shape, add_label, add_prob):
         for idx, (image, label, prob, coord) in enumerate(zip(images, labels, probs, coords)):
             img_path = args.test_files[idx]
 
@@ -624,7 +721,8 @@ class Net:
                 print('Y coordinates...: {}'.format(list(coord[1])))
                 print('-' * 100)
             elif verbose == 1:
-                img_labeled = self.put_points_on_image(image, label, prob, coord, add_label=add_label, add_prob=add_prob)
+                img_labeled = self.put_points_on_image(image, label, prob, coord,
+                                                       shape=shape, add_label=add_label, add_prob=add_prob)
                 fig = plt.figure(img_path, figsize=(5, 7))
                 plt.imshow(img_labeled, cmap='gray')
                 title = '\n\nLabels: {}\n\nProbabilities: {}\n\nX coordinates: {}\n\nY coordinates: {}'\
@@ -640,17 +738,18 @@ class Net:
             else:
                 raise ValueError('Incorrect VERBOSE value, please check it!')
 
-    def save_image_predictions(self, images, labels, probs, coords, save_dir, add_label, add_prob):
+    def save_to_images(self, images, labels, probs, coords, save_dir, shape, add_label, add_prob):
         if not os.path.isdir(save_dir):
             os.makedirs(save_dir)
         for idx, (image, label, prob, coord) in enumerate(zip(images, labels, probs, coords)):
-            img_labeled = self.put_points_on_image(image, label, prob, coord, add_label=add_label, add_prob=add_prob)
+            img_labeled = self.put_points_on_image(image, label, prob, coord,
+                                                   shape=shape, add_label=add_label, add_prob=add_prob)
             save_path = os.path.join(save_dir, os.path.basename(args.test_files[idx]))
             cv2.imwrite(save_path, 255*img_labeled)
         # Debugging only
         # plt.imshow(img_labeled)
 
-    def save_video_predictions(self, images, probs, labels, coords, save_dir, add_label, add_prob, fps):
+    def save_to_video(self, images, probs, labels, coords, save_dir, shape, add_label, add_prob, fps):
         if not os.path.isdir(save_dir):
             os.makedirs(save_dir)
         output_size = (images.shape[1], images.shape[2])
@@ -660,7 +759,8 @@ class Net:
         video_path = os.path.join(save_dir, video_name + '_prediction.avi')
         video_writer = cv2.VideoWriter(filename=video_path, fourcc=fourcc, fps=fps, frameSize=output_size)
         for idx, (image, label, prob, coord) in enumerate(zip(images, labels, probs, coords)):
-            img_labeled = self.put_points_on_image(image, label, prob, coord, add_label=add_label, add_prob=add_prob)
+            img_labeled = self.put_points_on_image(image, label, prob, coord,
+                                                   shape=shape, add_label=add_label, add_prob=add_prob)
             img_labeled_uint8 = (img_labeled*255).astype(np.uint8)
             video_writer.write(img_labeled_uint8)
         video_writer.release()
@@ -668,15 +768,23 @@ class Net:
         # plt.imshow(img_labeled)
         # cv2.imwrite('a.png', 255*img_labeled)
 
-    def put_points_on_image(self, img, label, prob, coord, add_label, add_prob):
+    def put_points_on_image(self, img, label, prob, coord, shape, add_label, add_prob):
         img_src = img.copy()
-        scale = 0.02
+        radius = 6
+        scale = 0.025
         fontScale = min(img_src.shape[0], img_src.shape[1]) / (25 / scale)
         for idx, point_label in enumerate(label):
             point_prob = prob[0, idx]
             point_coord = (coord[0, idx], coord[1, idx])
             point_color = args.point_colors[point_label]
-            cv2.circle(img=img_src, center=point_coord, radius=5, color=point_color, thickness=-1)
+            if shape == 'circle':
+                cv2.circle(img=img_src, center=point_coord, radius=radius, color=point_color, thickness=-1)
+            elif shape == 'square':
+                start_point = (coord[0, idx] - radius, coord[1, idx] - radius)
+                end_point = (coord[0, idx] + radius, coord[1, idx] + radius)
+                cv2.rectangle(img=img_src, pt1=start_point, pt2=end_point, color=point_color, thickness=-1)
+            else:
+                raise ValueError('Incorrect shape value, please check it!')
             if add_label and not add_prob:
                 text = point_label
                 text_coord = (point_coord[0] + 10, point_coord[1])
@@ -699,14 +807,18 @@ class Net:
 # ------------------------------------------------------- Handler ------------------------------------------------------
 if __name__ == '__main__':
     net = Net()
-    if MODE == 'train':
+    if args.mode == 'train':
         net.train_model()
-    elif MODE == 'test':
+    elif args.mode == 'test':
         model_output = net.test_model(test_model_dir=args.test_model_dir, test_files=args.test_files)
-        images, probs, labels, coords = net.process_predictions(model_output=model_output, thresh_class=0.5, thresh_x=0.01, thresh_y=0.01)
-        net.save_video_predictions(images=images, labels=labels, probs=probs, coords=coords, save_dir='predictions_video', add_label=True, add_prob=True, fps=5)
-        # net.save_image_predictions(images=images, labels=labels, probs=probs, coords=coords, save_dir='predictions_images', add_label=True, add_prob=True)
-        # net.show_predictions(images=images, labels=labels, probs=probs, coords=coords, verbose=1, save_dir='predictions_2', add_label=True, add_prob=False)
+        images, labels, probs, coords = net.process_predictions(model_output=model_output, test_files=args.test_files,
+                                                                thresh_class=0.75, thresh_x=0.01, thresh_y=0.01)
+        # net.save_to_video(images=images, labels=labels, probs=probs, coords=coords, save_dir='predictions_video',
+        #                   shape='circle', add_label=True, add_prob=False, fps=7)
+        net.save_to_images(images=images, labels=labels, probs=probs, coords=coords, save_dir='predictions_images',
+                           shape='circle', add_label=True, add_prob=True)
+        # net.show_predictions(images=images, labels=labels, probs=probs, coords=coords, verbose=1, save_dir='predictions_plt',
+        #                      shape='circle', add_label=True, add_prob=False)
     else:
         raise ValueError('Incorrect MODE value, please check it!')
     print('-' * 100)
