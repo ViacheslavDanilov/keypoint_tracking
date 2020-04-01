@@ -25,29 +25,29 @@ MODE = 'train'
 MODEL_NAME = 'MobileNet_V2'
 BATCH_SIZE = 64
 LR = 1e-5
-EPOCHS = 5
+EPOCHS = 200
 OPTIMIZER = 'radam'
 CLASS_LOSS = 'bce'
 CLASS_WEIGHT = 1.
 POINT_LOSS = 'mae'
-POINT_WEIGHT = 4.
+POINT_WEIGHT = 1.
+IS_TRAINABLE = False
 
 # ------------------------------------------------ Additional parameters -----------------------------------------------
 DATA_PATH = 'data/data.xlsx'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 BUFFER_SIZE = 1000
-IS_TRAINABLE = False
 VERBOSE = 1
 TEST_MODEL_DIR = 'models/MobileNet_V2_2703_2250'
-palette = sns.color_palette("pastel", n_colors=11)  # hls, Set2, Set3, Paired, pastel
+palette = sns.color_palette("pastel", n_colors=11)  # pastel, hls, Paired, Set2, Set3
 TEST_FILES = ['data/img/001_025.png', 'data/img/002_028.png', 'data/img/003_032.png', 'data/img/004_016.png']
 # TEST_FILES = ['data/video/007.avi']
 # TEST_FILES = glob('data/img/*' + '004' + '_*')
-CALLBACK_IMAGES = ['data/img/001_025.png', 'data/img/002_028.png', 'data/img/003_032.png', 'data/img/004_016.png',
-                   'data/img/005_024.png', 'data/img/006_025.png', 'data/img/007_020.png', 'data/img/008_046.png',
-                   'data/img/009_022.png', 'data/img/010_025.png', 'data/img/011_040.png', 'data/img/012_030.png',
-                   'data/img/013_042.png', 'data/img/013_141.png', 'data/img/014_050.png', 'data/img/014_110.png',
-                   'data/img/015_040.png', 'data/img/016_070.png', 'data/img/016_180.png', 'data/img/017_103.png']
+CALLBACK_IMAGES = ['data/img/003_007.png',  'data/img/003_034.png', 'data/img/004_002.png', 'data/img/004_013.png',
+                   'data/img/005_003.png', 'data/img/005_007.png', 'data/img/005_022.png', 'data/img/008_030.png',
+                   'data/img/008_045.png', 'data/img/009_003.png', 'data/img/009_023.png', 'data/img/010_006.png',
+                   'data/img/010_031.png', 'data/img/012_032.png', 'data/img/012_063.png', 'data/img/014_050.png',
+                   'data/img/014_110.png', 'data/img/016_070.png', 'data/img/016_180.png', 'data/img/017_103.png']
 LABEL_NAMES = ['AA1', 'AA2', 'STJ1', 'STJ2', 'CD', 'CM', 'CP', 'CT', 'PT', 'FE1', 'FE2']
 POINT_NAMES = ['AA1_x', 'AA1_y', 'AA2_x', 'AA2_y', 'STJ1_x', 'STJ1_y', 'STJ2_x', 'STJ2_y', 'CD_x', 'CD_y',
                'CM_x', 'CM_y', 'CP_x', 'CP_y', 'CT_x', 'CT_y', 'PT_x', 'PT_y', 'FE1_x', 'FE1_y', 'FE2_x', 'FE2_y']
@@ -66,27 +66,25 @@ else:
 # -------------------------------------------- Initialize ArgParse container -------------------------------------------
 parser = argparse.ArgumentParser(description='Keypoint tracking and classification')
 parser.add_argument('-mo', '--mode', metavar='', default=MODE, type=str, help='mode: train or test')
-args = parser.parse_args()
-if args.mode == 'train':
-    parser.add_argument('-mn', '--model_name', metavar='', default=MODEL_NAME, type=str, help='architecture of the model')
-    parser.add_argument('-opt', '--optimizer', metavar='', default=OPTIMIZER, type=str, help='type of an optimizer')
-    parser.add_argument('-clo', '--class_loss', metavar='', default=CLASS_LOSS, type=str, help='classification loss')
-    parser.add_argument('-plo', '--point_loss', metavar='', default=POINT_LOSS, type=str, help='regression loss')
-    parser.add_argument('-cw', '--class_weight', metavar='', default=CLASS_WEIGHT, type=float, help='class loss weight')
-    parser.add_argument('-pw', '--point_weight', metavar='', default=POINT_WEIGHT, type=float, help='point loss weight')
-    parser.add_argument('-lr', '--learning_rate', metavar='', default=LR, type=float, help='learning rate')
-    parser.add_argument('-bas', '--batch_size', metavar='', default=BATCH_SIZE, type=int, help='batch size')
-    parser.add_argument('-ep', '--epochs', metavar='', default=EPOCHS, type=int, help='number of epochs for training')
-    parser.add_argument('-bus', '--buffer_size', metavar='', default=BUFFER_SIZE, type=int, help='buffer size')
-    parser.add_argument('-ist', '--is_trainable', action='store_true', default=IS_TRAINABLE, help='whether to train backbone')
-    parser.add_argument('--img_size', metavar='', default=IMG_SIZE, type=int, help='image size')
-    parser.add_argument('--callback_images', metavar='', default=CALLBACK_IMAGES, type=list, help='images for callback prediction')
-elif args.mode == 'test':
-    parser.add_argument('-tmd', '--test_model_dir', metavar='', default=TEST_MODEL_DIR, type=str, help='model directory for testing mode')
-    parser.add_argument('-tf', '--test_files', nargs='+', metavar='', default=TEST_FILES, type=str, help='list of tested images')
-    parser.add_argument('-ver', '--verbose', metavar='', default=VERBOSE, type=int, help='verbosity mode')
-else:
-    raise ValueError('Incorrect MODE value, please check it!')
+# Training arguments
+parser.add_argument('-mn', '--model_name', metavar='', default=MODEL_NAME, type=str, help='architecture of the model')
+parser.add_argument('-opt', '--optimizer', metavar='', default=OPTIMIZER, type=str, help='type of an optimizer')
+parser.add_argument('-clo', '--class_loss', metavar='', default=CLASS_LOSS, type=str, help='classification loss')
+parser.add_argument('-plo', '--point_loss', metavar='', default=POINT_LOSS, type=str, help='regression loss')
+parser.add_argument('-cw', '--class_weight', metavar='', default=CLASS_WEIGHT, type=float, help='class loss weight')
+parser.add_argument('-pw', '--point_weight', metavar='', default=POINT_WEIGHT, type=float, help='point loss weight')
+parser.add_argument('-lr', '--learning_rate', metavar='', default=LR, type=float, help='learning rate')
+parser.add_argument('-bas', '--batch_size', metavar='', default=BATCH_SIZE, type=int, help='batch size')
+parser.add_argument('-ep', '--epochs', metavar='', default=EPOCHS, type=int, help='number of epochs for training')
+parser.add_argument('-bus', '--buffer_size', metavar='', default=BUFFER_SIZE, type=int, help='buffer size')
+parser.add_argument('-ist', '--is_trainable', action='store_true', default=IS_TRAINABLE, help='whether to train backbone')
+parser.add_argument('--img_size', metavar='', default=IMG_SIZE, type=int, help='image size')
+parser.add_argument('--callback_images', metavar='', default=CALLBACK_IMAGES, type=list, help='images for callback prediction')
+# Testing arguments
+parser.add_argument('-tmd', '--test_model_dir', metavar='', default=TEST_MODEL_DIR, type=str, help='model directory for testing mode')
+parser.add_argument('-tf', '--test_files', nargs='+', metavar='', default=TEST_FILES, type=str, help='list of tested images')
+parser.add_argument('-ver', '--verbose', metavar='', default=VERBOSE, type=int, help='verbosity mode')
+# Common arguments
 parser.add_argument('--point_colors', metavar='', default=POINT_COLORS, type=dict, help='point colors')
 parser.add_argument('--label_names', metavar='', default=LABEL_NAMES, type=list, help='list of label names')
 parser.add_argument('--point_names', metavar='', default=POINT_NAMES, type=list, help='list of point names')
@@ -94,11 +92,11 @@ args = parser.parse_args()
 
 # -------------------------------------------- Callback for saving images ----------------------------------------------
 class ImageSaver(tf.keras.callbacks.Callback):
-    def __init__(self, save_images, save_dir, draw_gt):
+    def __init__(self, image_paths, save_dir, draw_gt):
         data_processor = DataProcessor()
         self.net = Net()
-        self.save_images = save_images
-        self.imgs = data_processor.process_images(paths=save_images,
+        self.image_paths = image_paths
+        self.imgs = data_processor.process_images(paths=image_paths,
                                                   img_height=args.img_size[0],
                                                   img_width=args.img_size[1],
                                                   img_channels=args.img_size[2])
@@ -111,7 +109,7 @@ class ImageSaver(tf.keras.callbacks.Callback):
         self.gt_labels = []
         self.gt_probs = []
         self.gt_coords = []
-        for img_path in save_images:
+        for img_path in image_paths:
             gt_img_idx = int(source_df[source_df['Path'] == img_path].index.values)
 
             # Get GT values
@@ -159,7 +157,7 @@ class ImageSaver(tf.keras.callbacks.Callback):
 
     def on_epoch_end(self, epoch, logs=None):
         model_probs = self.model.predict(self.imgs)
-        images, pred_labels, pred_probs, pred_coords = self.net.process_predictions(model_output=model_probs, test_files=self.save_images,
+        images, pred_labels, pred_probs, pred_coords = self.net.process_predictions(model_output=model_probs, test_files=self.image_paths,
                                                                                     thresh_class=0.5, thresh_x=0.01, thresh_y=0.01)
         for idx, image in enumerate(images):
             pred_label = pred_labels[idx]
@@ -173,8 +171,8 @@ class ImageSaver(tf.keras.callbacks.Callback):
                 image = self.net.put_points_on_image(image, gt_label, gt_prob, gt_coord,
                                                      shape='square', add_label=False, add_prob=False)
             image = self.net.put_points_on_image(image, pred_label, pred_prob, pred_coord,
-                                                 shape='circle', add_label=True, add_prob=True)
-            img_name = os.path.basename(self.save_images[idx])
+                                                 shape='star', add_label=True, add_prob=True)
+            img_name = os.path.basename(self.image_paths[idx])
             img_name, img_ext = os.path.splitext(img_name)[0], os.path.splitext(img_name)[1]
             save_name = img_name + '_epoch=' + str(epoch).zfill(3) + img_ext
             save_path = os.path.join(self.save_dir, save_name)
@@ -205,8 +203,7 @@ class DataProcessor():
         Args:
             path_to_data: string representing path to xlsx dataset info
         """
-        # TODO: delete nrows for the full dataset
-        source_df = pandas.read_excel(path_to_data, index_col=None, na_values=['NA'], usecols="B:AM", nrows=1752)
+        source_df = pandas.read_excel(path_to_data, index_col=None, na_values=['NA'], usecols="B:AM")   # nrows=1752
         path_df = source_df['Path']
         class_df = source_df[args.label_names]
         point_df = source_df[args.point_names]
@@ -456,14 +453,14 @@ class Net:
         print('-' * 100)
         print("Number of images for training.....: {} ({:.1%})".format(len(X_train),
                                                                        round(len(X_train)/(len(X_train)+len(X_val)), 1)))
-        print("Number of images for validation...: {} ({:.1%})".format(len(X_val),
+        print("Number of images for validation...: {}  ({:.1%})".format(len(X_val),
                                                                        round(len(X_val)/(len(X_train)+len(X_val)), 1)))
         print('-' * 100)
 
         train_ds = data_processor.create_dataset(X_train, y_train, z_train,
-                                                 is_caching=True, cache_name=None)
+                                                 is_caching=True, cache_name='train_' + str(args.img_size[0]))
         val_ds = data_processor.create_dataset(X_val, y_val, z_val,
-                                               is_caching=True, cache_name=None)
+                                               is_caching=True, cache_name='val_' + str(args.img_size[0]))
         for image, target in train_ds.take(1):
             print('-' * 100)
             print("Image batch shape...: {}".format(image.numpy().shape))
@@ -482,18 +479,20 @@ class Net:
                       model_dir=args.train_model_dir,
                       optimizer=args.optimizer,
                       class_loss=args.class_loss,
+                      class_weight=args.class_weight,
                       point_loss=args.point_loss,
+                      point_weight=args.point_weight,
                       batch_size=args.batch_size,
                       buffer_size=args.buffer_size,
                       epochs=args.epochs,
                       learning_rate=args.learning_rate,
                       trainable_backbone=args.is_trainable)
-        wandb.init(project='temp', dir=args.train_model_dir, name=run_name, sync_tensorboard=True, config=params)
+        wandb.init(project='tavr', dir=args.train_model_dir, name=run_name, sync_tensorboard=True, config=params)
         wandb.run.id = wandb.run.id
         wandb.config.update(params)
 
         # -------------------------------------------  Initialize callbacks --------------------------------------------
-        img_saver = ImageSaver(save_images=args.callback_images, save_dir='predictions_per_epoch', draw_gt=True)
+        img_saver = ImageSaver(image_paths=args.callback_images, save_dir='predictions_per_epoch', draw_gt=True)
         csv_logger = CSVLogger(os.path.join(args.train_model_dir, 'logs.csv'), separator=',', append=False)
         check_pointer = ModelCheckpoint(filepath=os.path.join(args.train_model_dir, 'weights.h5'),
                                         monitor='val_loss',
@@ -509,7 +508,7 @@ class Net:
                                               verbose=1)
         earlystop = EarlyStopping(monitor='val_loss',
                                   min_delta=0.005,
-                                  patience=5,
+                                  patience=10,
                                   mode='min',
                                   verbose=1)
 
@@ -547,7 +546,7 @@ class Net:
         #                     batch_size=args.batch_size,
         #                     epochs=args.epochs,
         #                     validation_data=(X_val, [y_val, z_val]),
-        #                     callbacks=[csv_logger, wb_logger, check_pointer, earlystop])
+        #                     callbacks=[csv_logger, wb_logger, img_saver, check_pointer, earlystop])
         history = model.fit(x=train_ds,
                             epochs=args.epochs,
                             validation_data=val_ds,
@@ -589,7 +588,7 @@ class Net:
         # -------------------------------------- Getting of a YAML configuration ---------------------------------------
         for root, dirs, files in os.walk(test_model_dir):
             for file in files:
-                if file.endswith(".yaml"):
+                if file == 'config.yaml':
                     config_path = os.path.join(root, file)
 
         if 'config_path' in globals() or 'config_path' in locals():
@@ -770,34 +769,61 @@ class Net:
 
     def put_points_on_image(self, img, label, prob, coord, shape, add_label, add_prob):
         img_src = img.copy()
-        radius = 6
         scale = 0.025
         fontScale = min(img_src.shape[0], img_src.shape[1]) / (25 / scale)
         for idx, point_label in enumerate(label):
             point_prob = prob[0, idx]
-            point_coord = (coord[0, idx], coord[1, idx])
+            center_coord = (coord[0, idx], coord[1, idx])
             point_color = args.point_colors[point_label]
             if shape == 'circle':
-                cv2.circle(img=img_src, center=point_coord, radius=radius, color=point_color, thickness=-1)
+                cv2.circle(img=img_src, center=center_coord, radius=7, color=point_color, thickness=-1)
+            elif shape == 'star':
+                radius = 7
+                line_thick = 2
+                alpha = 45 * np.pi/180
+                c_x = coord[0, idx]
+                c_y = coord[1, idx]
+                p0_x = int(np.round(c_x))
+                p0_y = int(np.round(c_y - radius))
+                p1_x = int(np.round(c_x + np.cos(alpha)*radius))
+                p1_y = int(np.round(c_y - np.sin(alpha)*radius))
+                p2_x = int(np.round(c_x + radius))
+                p2_y = int(np.round(c_y))
+                p3_x = int(np.round(c_x + np.cos(alpha)*radius))
+                p3_y = int(np.round(c_y + np.sin(alpha)*radius))
+                p4_x = int(np.round(c_x))
+                p4_y = int(np.round(c_y + radius))
+                p5_x = int(np.round(c_x - np.cos(alpha)*radius))
+                p5_y = int(np.round(c_y + np.sin(alpha)*radius))
+                p6_x = int(np.round(c_x - radius))
+                p6_y = int(np.round(c_y))
+                p7_x = int(np.round(c_x - np.cos(alpha)*radius))
+                p7_y = int(np.round(c_y - np.sin(alpha)*radius))
+                cv2.line(img=img_src, pt1=(p0_x, p0_y), pt2=(p4_x, p4_y), color=point_color, thickness=line_thick, lineType=cv2.LINE_AA)
+                cv2.line(img=img_src, pt1=(p1_x, p1_y), pt2=(p5_x, p5_y), color=point_color, thickness=line_thick, lineType=cv2.LINE_AA)
+                cv2.line(img=img_src, pt1=(p2_x, p2_y), pt2=(p6_x, p6_y), color=point_color, thickness=line_thick, lineType=cv2.LINE_AA)
+                cv2.line(img=img_src, pt1=(p3_x, p3_y), pt2=(p7_x, p7_y), color=point_color, thickness=line_thick, lineType=cv2.LINE_AA)
             elif shape == 'square':
-                start_point = (coord[0, idx] - radius, coord[1, idx] - radius)
-                end_point = (coord[0, idx] + radius, coord[1, idx] + radius)
+                side = 7
+                start_point = (coord[0, idx] - side, coord[1, idx] - side)
+                end_point = (coord[0, idx] + side, coord[1, idx] + side)
                 cv2.rectangle(img=img_src, pt1=start_point, pt2=end_point, color=point_color, thickness=-1)
             else:
                 raise ValueError('Incorrect shape value, please check it!')
+
             if add_label and not add_prob:
                 text = point_label
-                text_coord = (point_coord[0] + 10, point_coord[1])
+                text_coord = (center_coord[0] + 10, center_coord[1])
                 cv2.putText(img=img_src, text=text, org=text_coord, color=point_color,
                             fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=fontScale, thickness=1, lineType=cv2.LINE_AA)
             elif add_prob and not add_label:
                 text = str(np.round(100*point_prob).astype(int))
-                text_coord = (point_coord[0] + 10, point_coord[1])
+                text_coord = (center_coord[0] + 10, center_coord[1])
                 cv2.putText(img=img_src, text=text, org=text_coord, color=point_color,
                             fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=fontScale, thickness=1, lineType=cv2.LINE_AA)
             elif add_prob and add_label:
                 text = point_label + '(' + str(np.round(100*point_prob).astype(int)) + ')'
-                text_coord = (point_coord[0] + 10, point_coord[1])
+                text_coord = (center_coord[0] + 10, center_coord[1])
                 cv2.putText(img=img_src, text=text, org=text_coord, color=point_color,
                             fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=fontScale, thickness=1, lineType=cv2.LINE_AA)
         # Debugging only
@@ -813,12 +839,12 @@ if __name__ == '__main__':
         model_output = net.test_model(test_model_dir=args.test_model_dir, test_files=args.test_files)
         images, labels, probs, coords = net.process_predictions(model_output=model_output, test_files=args.test_files,
                                                                 thresh_class=0.75, thresh_x=0.01, thresh_y=0.01)
-        # net.save_to_video(images=images, labels=labels, probs=probs, coords=coords, save_dir='predictions_video',
-        #                   shape='circle', add_label=True, add_prob=False, fps=7)
+        net.save_to_video(images=images, labels=labels, probs=probs, coords=coords, save_dir='predictions_video',
+                          shape='circle', add_label=True, add_prob=False, fps=7)
         net.save_to_images(images=images, labels=labels, probs=probs, coords=coords, save_dir='predictions_images',
-                           shape='circle', add_label=True, add_prob=True)
-        # net.show_predictions(images=images, labels=labels, probs=probs, coords=coords, verbose=1, save_dir='predictions_plt',
-        #                      shape='circle', add_label=True, add_prob=False)
+                           shape='star', add_label=True, add_prob=True)
+        net.show_predictions(images=images, labels=labels, probs=probs, coords=coords, verbose=1, save_dir='predictions_plt',
+                             shape='circle', add_label=True, add_prob=False)
     else:
         raise ValueError('Incorrect MODE value, please check it!')
     print('-' * 100)

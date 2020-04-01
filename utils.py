@@ -1,12 +1,111 @@
 import os
+import cv2
+import json
 import random
+import pandas
 import numpy as np
 import pandas as pd
+from glob import glob
+from tqdm import tqdm
 import tensorflow as tf
 import tensorflow_addons as tfa
 import matplotlib.pyplot as plt
 import matplotlib.style as style
 from sklearn.metrics import f1_score
+
+def convert_images_to_video(images_dir, images_prefix, fps, save_dir):
+    if not os.path.isdir(save_dir):
+        os.makedirs(save_dir)
+    image_paths = glob(images_dir + '/*' + images_prefix + '_*')
+    image_paths.sort()
+    image = cv2.imread(image_paths[0])
+    output_size = (image.shape[0], image.shape[1])
+
+    fourcc = cv2.VideoWriter_fourcc(*'DIVX')
+    video_path = os.path.join(save_dir, images_prefix + '_training.avi')
+    video_writer = cv2.VideoWriter(filename=video_path, fourcc=fourcc, fps=fps, frameSize=output_size)
+    for idx, image_path in enumerate(image_paths):
+        image = cv2.imread(image_path)
+        # img_labeled_uint8 = (img_labeled * 255).astype(np.uint8)
+        video_writer.write(image)
+    video_writer.release()
+    print('Video converted to {}'.format(video_path))
+
+def convert_json_to_xlsx(ann_dir, img_dir, save_dir):
+    ann_paths = glob(ann_dir + "/*.json")
+    ann_paths.sort()
+    if not os.path.isdir(save_dir):
+        os.mkdir(save_dir)
+
+    column_order = ['Name', 'Path', 'Height', 'Width', 'Points',
+                    'AA1', 'AA2', 'STJ1', 'STJ2', 'CD', 'CM', 'CP', 'CT', 'PT', 'FE1', 'FE2',
+                    'AA1_x', 'AA1_y', 'AA2_x', 'AA2_y', 'STJ1_x', 'STJ1_y', 'STJ2_x', 'STJ2_y',
+                    'CD_x', 'CD_y', 'CM_x', 'CM_y', 'CP_x', 'CP_y', 'CT_x', 'CT_y',
+                    'PT_x', 'PT_y', 'FE1_x', 'FE1_y', 'FE2_x', 'FE2_y']
+
+    ann_df = pandas.DataFrame(columns=column_order)
+    idx = 0
+    for _, ann_path in tqdm(enumerate(ann_paths), unit=' json files'):
+        with open(ann_path) as f:
+            json_data = json.load(f)
+        num_points = len(json_data['objects'])
+        if num_points > 0:
+            json_name = os.path.basename(ann_path)
+            img_name = os.path.splitext(json_name)[0]
+            img_path = os.path.join(img_dir, img_name)
+            img_path = os.path.normpath(img_path)
+            height = json_data['size']['height']
+            width = json_data['size']['width']
+
+            ann_df.loc[idx, 0:len(column_order)] = 0
+            ann_df.loc[idx, 'Name'] = img_name
+            ann_df.loc[idx, 'Path'] = img_path
+            ann_df.loc[idx, 'Height'] = height
+            ann_df.loc[idx, 'Width'] = width
+            ann_df.loc[idx, 'Points'] = num_points
+
+            for point_idx in range(num_points):
+                point_class = json_data['objects'][point_idx]['classTitle']
+                point_x = json_data['objects'][point_idx]['points']['exterior'][0][0]
+                point_y = json_data['objects'][point_idx]['points']['exterior'][0][1]
+                ann_df.loc[idx, point_class] = 1
+                ann_df.loc[idx, point_class + '_x'] = point_x
+                ann_df.loc[idx, point_class + '_y'] = point_y
+            idx += 1
+
+    xlsx_name = os.path.join(save_dir, 'data.xlsx')
+    ann_df.to_excel(xlsx_name, sheet_name='Data', index=True, startrow=0, startcol=0)
+    print('JSON files converted to XLSX file to {}'.format(xlsx_name))
+
+def extract_images_from_video(video_dir, output_dims, save_freq, save_dir):
+    file_names = os.listdir(video_dir)
+
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    pbar = tqdm(file_names)
+    for file_name in pbar:
+        i = 0
+        times = 0
+        cap = cv2.VideoCapture(os.path.join(video_dir, file_name))
+        video_height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        video_width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+        while True:
+                ret, frame = cap.read()
+                if ret == True:
+                    times += 1
+                    if times % save_freq == 0:
+                        if video_height != video_width:
+                            frame = frame[0:896, 485:1380]
+                        frame = cv2.resize(frame, output_dims, interpolation=cv2.INTER_AREA)
+                        video_name = os.path.splitext(file_name)[0]
+                        image_path = os.path.join(save_dir, video_name + '_' + str(i + 1).zfill(3) + '.png')
+                        cv2.imwrite(image_path, frame)
+                        i += 1
+                else:
+                    break
+        pbar.set_description("Processing %s" % file_name)
+        print('\n{0:d} images saved for {1:s}'.format(i, file_name))
 
 def get_random_dcm(dir):
     dcm = os.path.join(dir, random.choice(os.listdir(dir)))
@@ -15,9 +114,9 @@ def get_random_dcm(dir):
     return dcm
 
 def macro_f1(y_true, y_pred, thresh=0.5):
-    """Compute the macro F1-score on a batch of observations (average F1 across labels)
+    """Compute the macro F1-score on a batch of observations (average F1 across label)
     Args:
-        y_true (int32 Tensor): labels array
+        y_true (int32 Tensor): label array
         y_pred (float32 Tensor): probability matrix from forward propagation
         thresh: probability value above which a model predicts positive
 
@@ -33,7 +132,7 @@ def macro_f1(y_true, y_pred, thresh=0.5):
     return macro_f1
 
 def f1_loss(y_true, y_pred):
-    """Compute the macro soft F1-score as a cost (average 1 - soft-F1 across all labels).
+    """Compute the macro soft F1-score as a cost (average 1 - soft-F1 across all label).
     Use probability values instead of binary predictions.
 
     Args:
@@ -50,22 +149,22 @@ def f1_loss(y_true, y_pred):
     fn = tf.reduce_sum((1 - y_pred) * y_true, axis=0)
     soft_f1 = 2 * tp / (2 * tp + fn + fp + 1e-16)
     cost = 1 - soft_f1                              # reduce (1 - f1) in order to increase f1
-    macro_cost = tf.reduce_mean(cost)               # average on all labels
+    macro_cost = tf.reduce_mean(cost)               # average on all label
     return macro_cost
 
-# def micro_f1_new(y_true, y_pred, thresh=0.5):
+# def micro_f1_new(y_true, y_pred, thresh_class=0.5):
 #     f1 = tfa.metrics.F1Score(num_classes=3, average='micro', name='Privet')
 #     y_true = tf.cast(y_true, dtype=tf.int32)
-#     y_pred = tf.cast(tf.greater(y_pred, thresh), tf.int32)
+#     y_pred = tf.cast(tf.greater(y_pred, thresh_class), tf.int32)
 #     y_true = tf.one_hot(y_true, depth=2)
 #     y_pred = tf.one_hot(y_pred, depth=2)
 #     f1.update_state(y_true, y_pred)
 #     # print('F1 Score is: ', f1.result().numpy())
 #     return f1.result().numpy()
 #
-# def micro_f1_new_scikit(y_true, y_pred, thresh=0.5):
+# def micro_f1_new_scikit(y_true, y_pred, thresh_class=0.5):
 #     y_pred = tf.keras.backend.get_value(y_pred)
-#     y_pred = (y_pred > thresh).astype('int')
+#     y_pred = (y_pred > thresh_class).astype('int')
 #     y_true = tf.keras.backend.get_value(y_true)
 #     # y_true = y_true.numpy()
 #     y_true = y_true.astype('int')
@@ -154,7 +253,7 @@ def perfomance_grid(ds, target, label_names, model, save_dir, n_thresh=100):
     # Define thresholds
     thresholds = np.linspace(0, 1, n_thresh + 1).astype(np.float32)
 
-    # Compute all metrics for all labels
+    # Compute all metrics for all label
     ids, labels, freqs, tps, tns, fps, fns, precisions, recalls, f1s = [], [], [], [], [], [], [], [], [], []
     for idx in label_index:
         for thresh in thresholds:
@@ -200,11 +299,15 @@ def perfomance_grid(ds, target, label_names, model, save_dir, n_thresh=100):
 
 # ------------------------------------------------------- Handler ------------------------------------------------------
 if __name__ == '__main__':
-    # y_pred = tf.constant([[0.85, 0.15, 0.70], [0.65, 0.35, 0.27]])
-    # y_true = tf.constant([[1.00, 0.00, 1.00], [0.00, 1.00, 0.00]])
-    # y_pred = tf.constant([0.65, 0.35, 0.27])
-    # y_true = tf.constant([0.00, 1.00, 0.00])
-    # b = micro_f1_new(y_true, y_pred)
-    # b_scikit = micro_f1_new_scikit(y_true, y_pred)
-    # b_tf = micro_f1_wrong_axis(y_true, y_pred)
+    # Extract images from video
+    # extract_images_from_video(video_dir='data/video', output_dims=(1000, 1000), save_freq=1, save_dir='data/temp')
+
+    # Get XLSX data file using annotations and images
+    convert_json_to_xlsx(ann_dir='data/ann', img_dir='data/img', save_dir='data')
+
+    # Convert callback images to video
+    # ids = ['001', '006', '007', '010', '011', '013_042', '013_141', '014_050', '014_110', '015', '016_070', '016_180', '017']
+    # for id in ids:
+    #     convert_images_to_video(images_dir='models/MobileNet_V2_0104_2205/predictions_per_epoch',
+    #                             images_prefix=id, fps=10, save_dir='video_training')
     print('Complete!')
