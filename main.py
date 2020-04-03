@@ -25,7 +25,7 @@ MODE = 'train'
 MODEL_NAME = 'MobileNet_V2'
 BATCH_SIZE = 64
 LR = 1e-5
-EPOCHS = 200
+EPOCHS = 100
 OPTIMIZER = 'radam'
 CLASS_LOSS = 'bce'
 CLASS_WEIGHT = 1.
@@ -36,7 +36,7 @@ IS_TRAINABLE = False
 # ------------------------------------------------ Additional parameters -----------------------------------------------
 DATA_PATH = 'data/data.xlsx'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-BUFFER_SIZE = 1000
+BUFFER_SIZE = 4000
 VERBOSE = 1
 TEST_MODEL_DIR = 'models/MobileNet_V2_2703_2250'
 palette = sns.color_palette("pastel", n_colors=11)  # pastel, hls, Paired, Set2, Set3
@@ -207,20 +207,20 @@ class DataProcessor():
         path_df = source_df['Path']
         class_df = source_df[args.label_names]
         point_df = source_df[args.point_names]
-        # Debugging only
-        # path = path_df[0:5]
-        ds_path = os.path.join('data', 'img_inputs_' + str(args.img_size[0]) + '.npy')
-        if os.path.isfile(ds_path):
-            img_inputs = np.load(ds_path)
-        else:
-            img_inputs = self.process_images(paths=path_df,
-                                             img_height=args.img_size[0],
-                                             img_width=args.img_size[1],
-                                             img_channels=args.img_size[2])
-            np.save(ds_path, img_inputs)
-        class_targets = class_df.to_numpy()
+        img_paths = list(path_df)
+        label_targets = class_df.to_numpy()
         point_targets = point_df.to_numpy() / 1000
-        return img_inputs, class_targets, point_targets
+        return img_paths, label_targets, point_targets
+
+    def parse_fn(self, path):
+        img_string = tf.io.read_file(path)
+        img_input = tf.image.decode_png(img_string, channels=args.img_size[2])
+        img_resized = tf.image.resize(images=img_input, size=(args.img_size[0], args.img_size[1]))
+        img_norm = img_resized / 255.0
+        img_output = tf.reshape(tensor=img_norm, shape=(args.img_size[0], args.img_size[1], args.img_size[2]))
+        # Used for debugging
+        # self.visualize(img_input, img_output)
+        return img_output
 
     def process_images(self, paths, img_height, img_width, img_channels):
         img_inputs = np.ndarray(shape=(len(paths), img_height, img_width, img_channels), dtype=np.float32)
@@ -230,8 +230,6 @@ class DataProcessor():
             img_string = tf.io.read_file(path)
             img_input = tf.image.decode_png(img_string, channels=img_channels)
             img_resized = tf.image.resize(images=img_input, size=(img_height, img_width))
-            # img_input = tf.image.decode_png(img_string, channels=args.img_size[2])
-            # img_resized = tf.image.resize(images=img_input, size=(args.img_size[0], args.img_size[1]))
             img_norm = img_resized / 255.0
             img_inputs[idx] = img_norm
             idx += 1
@@ -266,23 +264,17 @@ class DataProcessor():
             # self.visualize(frame, img_norm)
         return img_inputs
 
-    def create_dataset(self, img_inputs, class_targets, point_targets, is_caching=None, cache_name=None):
-        """Load and parse a dataset.
-        Args:
-            img_inputs: list of image path
-            class_targets: numpy array of label
-            point_targets: numpy array of coordinates
-            is_caching: boolean to indicate caching mode
-            cache_name: name of data cache file
-        """
-        # Create a first dataset of file images, label and coordinates
+    def create_dataset(self, img_paths, label_targets, point_targets, is_caching=None, cache_name=None):
+        # Create a dataset of file images, labels and coordinates
         # dataset = tf.data.Dataset.from_tensor_slices(({'img_input': img_inputs},
-        #                                               {'class': class_targets, 'point': point_targets}))
-        dataset = tf.data.Dataset.from_tensor_slices((img_inputs, (class_targets, point_targets)))
-
+        #                                               {'class': label_targets, 'point': point_targets}))
+        # dataset = tf.data.Dataset.from_tensor_slices((img_inputs, (label_targets, point_targets)))
         # Debugging only
-        # temp_1 = self.parse_image(path[1], class_targets[1], point_targets[1])
-        # temp_2 = dataset.element_spec
+        # temp_1 = self.parse_fn(img_paths[1])
+        dataset_images = tf.data.Dataset.from_tensor_slices(img_paths)
+        dataset_images = dataset_images.map(map_func=self.parse_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+        dataset_targets = tf.data.Dataset.from_tensor_slices((label_targets, point_targets))
+        dataset = tf.data.Dataset.zip((dataset_images, dataset_targets))
 
         if is_caching:
             # This is a small dataset, only load it once, and keep it in memory.
@@ -343,7 +335,7 @@ class Net:
             f.write(model.to_json())
         end = time.time()
         img_path = os.path.join(args.train_model_dir, args.model_name + '.png')
-        tf.keras.utils.plot_model(model, to_file=img_path, show_shapes=True)
+        # tf.keras.utils.plot_model(model, to_file=img_path, show_shapes=True)
         print('Saving of the model architecture takes ({:1.3f} seconds)'.format(end - start))
         print('-' * 100)
 
@@ -439,14 +431,14 @@ class Net:
     def train_model(self):
         # -------------------------------------- Data processing and prefetching ---------------------------------------
         data_processor = DataProcessor()
-        img_inputs, class_targets, point_targets = data_processor.get_inputs_and_targets(path_to_data=DATA_PATH)
-        X_train_class, X_val_class, y_train, y_val = train_test_split(img_inputs, class_targets,
-                                                                      shuffle=True, test_size=0.2, random_state=11)
-        X_train_point, X_val_point, z_train, z_val = train_test_split(img_inputs, point_targets,
-                                                                      shuffle=True, test_size=0.2, random_state=11)
-        if np.array_equal(X_train_class, X_train_point) and np.array_equal(X_val_class, X_val_point):
-            X_train = X_train_class
-            X_val = X_val_class
+        img_inputs, label_targets, point_targets = data_processor.get_inputs_and_targets(path_to_data=DATA_PATH)
+        X_train_1, X_val_1, y_train, y_val = train_test_split(img_inputs, label_targets,
+                                                              shuffle=True, test_size=0.2, random_state=11)
+        X_train_2, X_val_2, z_train, z_val = train_test_split(img_inputs, point_targets,
+                                                              shuffle=True, test_size=0.2, random_state=11)
+        if np.array_equal(X_train_1, X_train_2) and np.array_equal(X_val_1, X_val_2):
+            X_train = X_train_1
+            X_val = X_val_1
         else:
             raise ValueError('Inputs for classification and regression subsets are not equal!')
 
@@ -457,10 +449,13 @@ class Net:
                                                                        round(len(X_val)/(len(X_train)+len(X_val)), 1)))
         print('-' * 100)
 
-        train_ds = data_processor.create_dataset(X_train, y_train, z_train,
-                                                 is_caching=True, cache_name='train_' + str(args.img_size[0]))
-        val_ds = data_processor.create_dataset(X_val, y_val, z_val,
-                                               is_caching=True, cache_name='val_' + str(args.img_size[0]))
+        # train_ds = data_processor.create_dataset(X_train, y_train, z_train,
+        #                                          is_caching=False, cache_name='train_' + str(args.img_size[0]))
+        # val_ds = data_processor.create_dataset(X_val, y_val, z_val,
+        #                                        is_caching=False, cache_name='val_' + str(args.img_size[0]))
+        train_ds = data_processor.create_dataset(X_train, y_train, z_train, is_caching=True, cache_name=None)
+        val_ds = data_processor.create_dataset(X_val, y_val, z_val, is_caching=True, cache_name=None)
+
         for image, target in train_ds.take(1):
             print('-' * 100)
             print("Image batch shape...: {}".format(image.numpy().shape))
@@ -508,7 +503,7 @@ class Net:
                                               verbose=1)
         earlystop = EarlyStopping(monitor='val_loss',
                                   min_delta=0.005,
-                                  patience=10,
+                                  patience=5,
                                   mode='min',
                                   verbose=1)
 
@@ -542,11 +537,6 @@ class Net:
             break
 
         start = time.time()
-        # history = model.fit(x=X_train, y=[y_train, z_train],
-        #                     batch_size=args.batch_size,
-        #                     epochs=args.epochs,
-        #                     validation_data=(X_val, [y_val, z_val]),
-        #                     callbacks=[csv_logger, wb_logger, img_saver, check_pointer, earlystop])
         history = model.fit(x=train_ds,
                             epochs=args.epochs,
                             validation_data=val_ds,
@@ -590,12 +580,9 @@ class Net:
             for file in files:
                 if file == 'config.yaml':
                     config_path = os.path.join(root, file)
-
-        if 'config_path' in globals() or 'config_path' in locals():
-            with open(config_path, 'r') as f:
-                config = yaml.load(f, Loader=yaml.FullLoader)
-        else:
-            raise ValueError('There is no a YAML config file!')
+                    with open(config_path, 'r') as f:
+                        config = yaml.load(f, Loader=yaml.FullLoader)
+                    break
         args.img_size = config['img_size']['value']
         args.model_name = config['model_name']['value']
 
@@ -615,21 +602,28 @@ class Net:
                                                    img_height=args.img_size[0],
                                                    img_width=args.img_size[1],
                                                    img_channels=args.img_size[2])
+            num_images = img_out.shape[0]
+            test_ds = tf.data.Dataset.from_tensor_slices(img_out)
+            test_ds = test_ds.batch(batch_size=1)
         else:
-            img_out = data_processor.process_images(paths=test_files,
-                                                    img_height=args.img_size[0],
-                                                    img_width=args.img_size[1],
-                                                    img_channels=args.img_size[2])
+            # img_out = data_processor.process_images(paths=test_files,
+            #                                         img_height=args.img_size[0],
+            #                                         img_width=args.img_size[1],
+            #                                         img_channels=args.img_size[2])
+            test_ds = tf.data.Dataset.from_tensor_slices(test_files)
+            test_ds = test_ds.map(map_func=data_processor.parse_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+            test_ds = test_ds.batch(batch_size=1)
+            num_images = len(test_files)
 
         # -------------------------- Generate prediction and process probabilities and label ---------------------------
         mlb = MultiLabelBinarizer(classes=args.label_names)
         mlb.fit(y=args.label_names)
         start = time.time()
-        model_probs = model.predict(img_out)
+        model_probs = model.predict(test_ds, verbose=0)
         pred_time = time.time() - start
         print('Total prediction time.....: {:1.3f} seconds'.format(pred_time))
-        print('Average prediction time...: {:1.3f} seconds per image'.format(pred_time / img_out.shape[0]))
-        print('Average prediction FPS....: {:1.1f} frames per second'.format(1. / (pred_time / img_out.shape[0])))
+        print('Average prediction time...: {:1.3f} seconds per image'.format(pred_time / num_images))
+        print('Average prediction FPS....: {:1.1f} frames per second'.format(1. / (pred_time / num_images)))
         print('-' * 100)
         return model_probs
 
@@ -838,13 +832,13 @@ if __name__ == '__main__':
     elif args.mode == 'test':
         model_output = net.test_model(test_model_dir=args.test_model_dir, test_files=args.test_files)
         images, labels, probs, coords = net.process_predictions(model_output=model_output, test_files=args.test_files,
-                                                                thresh_class=0.75, thresh_x=0.01, thresh_y=0.01)
-        net.save_to_video(images=images, labels=labels, probs=probs, coords=coords, save_dir='predictions_video',
-                          shape='circle', add_label=True, add_prob=False, fps=7)
-        net.save_to_images(images=images, labels=labels, probs=probs, coords=coords, save_dir='predictions_images',
+                                                                thresh_class=0.50, thresh_x=0.01, thresh_y=0.01)
+        net.save_to_video(images=images, labels=labels, probs=probs, coords=coords, save_dir='video_prediction',
+                          shape='star', add_label=True, add_prob=False, fps=7)
+        net.save_to_images(images=images, labels=labels, probs=probs, coords=coords, save_dir='images_prediction',
                            shape='star', add_label=True, add_prob=True)
-        net.show_predictions(images=images, labels=labels, probs=probs, coords=coords, verbose=1, save_dir='predictions_plt',
-                             shape='circle', add_label=True, add_prob=False)
+        net.show_predictions(images=images, labels=labels, probs=probs, coords=coords, verbose=1, save_dir='plt_prediction',
+                             shape='star', add_label=True, add_prob=False)
     else:
         raise ValueError('Incorrect MODE value, please check it!')
     print('-' * 100)
