@@ -212,7 +212,7 @@ class DataProcessor():
         point_targets = point_df.to_numpy() / 1000
         return img_paths, label_targets, point_targets
 
-    def parse_fn(self, path):
+    def map_func(self, path):
         img_string = tf.io.read_file(path)
         img_input = tf.image.decode_png(img_string, channels=args.img_size[2])
         img_resized = tf.image.resize(images=img_input, size=(args.img_size[0], args.img_size[1]))
@@ -270,9 +270,9 @@ class DataProcessor():
         #                                               {'class': label_targets, 'point': point_targets}))
         # dataset = tf.data.Dataset.from_tensor_slices((img_inputs, (label_targets, point_targets)))
         # Debugging only
-        # temp_1 = self.parse_fn(img_paths[1])
+        # temp_1 = self.map_func(img_paths[1])
         dataset_images = tf.data.Dataset.from_tensor_slices(img_paths)
-        dataset_images = dataset_images.map(map_func=self.parse_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+        dataset_images = dataset_images.map(map_func=self.map_func, num_parallel_calls=tf.data.experimental.AUTOTUNE)
         dataset_targets = tf.data.Dataset.from_tensor_slices((label_targets, point_targets))
         dataset = tf.data.Dataset.zip((dataset_images, dataset_targets))
 
@@ -611,7 +611,7 @@ class Net:
             #                                         img_width=args.img_size[1],
             #                                         img_channels=args.img_size[2])
             test_ds = tf.data.Dataset.from_tensor_slices(test_files)
-            test_ds = test_ds.map(map_func=data_processor.parse_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+            test_ds = test_ds.map(map_func=data_processor.map_func, num_parallel_calls=tf.data.experimental.AUTOTUNE)
             test_ds = test_ds.batch(batch_size=1)
             num_images = len(test_files)
 
