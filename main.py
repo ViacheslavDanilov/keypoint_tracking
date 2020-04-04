@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import tensorflow_addons as tfa
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MultiLabelBinarizer
-from tensorflow.keras import layers, models, optimizers, losses, metrics, preprocessing
+from tensorflow.keras import layers, models, optimizers, losses, metrics
 from tensorflow.keras.callbacks import EarlyStopping, CSVLogger, ModelCheckpoint
 from utils import get_random_dcm, f1_loss, macro_f1, get_timing, perfomance_grid
 
@@ -25,14 +25,14 @@ MODE = 'train'
 MODEL_NAME = 'MobileNet_V2'
 BATCH_SIZE = 64
 LR = 1e-5
-EPOCHS = 100
+EPOCHS = 5
 OPTIMIZER = 'radam'
-CLASS_LOSS = 'bce'
-CLASS_WEIGHT = 1.
-POINT_LOSS = 'huber'
-POINT_WEIGHT = 1.
+LABEL_LOSS = 'bce'
+LABEL_WEIGHT = 1.
+POINT_LOSS = 'logcosh'
+POINT_WEIGHT = 10.
 IS_TRAINABLE = False
-# TODO: CHANGE TO LABEL_LOSS
+
 # ------------------------------------------------ Additional parameters -----------------------------------------------
 DATA_PATH = 'data/data.xlsx'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -69,9 +69,9 @@ parser.add_argument('-mo', '--mode', metavar='', default=MODE, type=str, help='m
 # Training arguments
 parser.add_argument('-mn', '--model_name', metavar='', default=MODEL_NAME, type=str, help='architecture of the model')
 parser.add_argument('-opt', '--optimizer', metavar='', default=OPTIMIZER, type=str, help='type of an optimizer')
-parser.add_argument('-clo', '--class_loss', metavar='', default=CLASS_LOSS, type=str, help='classification loss')
+parser.add_argument('-clo', '--label_loss', metavar='', default=LABEL_LOSS, type=str, help='classification loss')
 parser.add_argument('-plo', '--point_loss', metavar='', default=POINT_LOSS, type=str, help='regression loss')
-parser.add_argument('-cw', '--class_weight', metavar='', default=CLASS_WEIGHT, type=float, help='class loss weight')
+parser.add_argument('-cw', '--label_weight', metavar='', default=LABEL_WEIGHT, type=float, help='label loss weight')
 parser.add_argument('-pw', '--point_weight', metavar='', default=POINT_WEIGHT, type=float, help='point loss weight')
 parser.add_argument('-lr', '--learning_rate', metavar='', default=LR, type=float, help='learning rate')
 parser.add_argument('-bas', '--batch_size', metavar='', default=BATCH_SIZE, type=int, help='batch size')
@@ -158,7 +158,7 @@ class ImageSaver(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
         model_probs = self.model.predict(self.imgs)
         images, pred_labels, pred_probs, pred_coords = self.net.process_predictions(model_output=model_probs, test_files=self.image_paths,
-                                                                                    thresh_class=0.5, thresh_x=0.01, thresh_y=0.01)
+                                                                                    thresh_label=0.5, thresh_x=0.01, thresh_y=0.01)
         for idx, image in enumerate(images):
             pred_label = pred_labels[idx]
             pred_prob = pred_probs[idx]
@@ -177,6 +177,12 @@ class ImageSaver(tf.keras.callbacks.Callback):
             save_name = img_name + '_epoch=' + str(epoch).zfill(3) + img_ext
             save_path = os.path.join(self.save_dir, save_name)
             cv2.imwrite(save_path, 255*image)
+            if idx == 0:
+                wandb.log({'Patient_1': [wandb.Image(image)]}, commit=False)
+            elif idx == 9:
+                wandb.log({'Patient_2': [wandb.Image(image)]}, commit=False)
+            elif idx == 17:
+                wandb.log({'Patient_3': [wandb.Image(image)]}, commit=False)
 
 # ------------------------------------------ Data processing and prefetching -------------------------------------------
 class DataProcessor():
@@ -203,12 +209,13 @@ class DataProcessor():
         Args:
             path_to_data: string representing path to xlsx dataset info
         """
-        source_df = pandas.read_excel(path_to_data, index_col=None, na_values=['NA'], usecols="B:AM")   # nrows=1752
+        # TODO: DELETE AFTER DEBUG
+        source_df = pandas.read_excel(path_to_data, index_col=None, na_values=['NA'], usecols="B:AM", nrows=1000)   # nrows=1752
         path_df = source_df['Path']
-        class_df = source_df[args.label_names]
+        label_df = source_df[args.label_names]
         point_df = source_df[args.point_names]
         img_paths = list(path_df)
-        label_targets = class_df.to_numpy()
+        label_targets = label_df.to_numpy()
         point_targets = point_df.to_numpy() / 1000
         return img_paths, label_targets, point_targets
 
@@ -267,7 +274,7 @@ class DataProcessor():
     def create_dataset(self, img_paths, label_targets, point_targets, is_caching=None, cache_name=None):
         # Create a dataset of file images, labels and coordinates
         # dataset = tf.data.Dataset.from_tensor_slices(({'img_input': img_inputs},
-        #                                               {'class': label_targets, 'point': point_targets}))
+        #                                               {'label': label_targets, 'point': point_targets}))
         # dataset = tf.data.Dataset.from_tensor_slices((img_inputs, (label_targets, point_targets)))
         # Debugging only
         # temp_1 = self.map_func(img_paths[1])
@@ -383,20 +390,20 @@ class Net:
         img_input = layers.Input(shape=(args.img_size[0], args.img_size[1], args.img_size[2]), name='img_input')
         hub_layer = hub.KerasLayer(handle=model_url, trainable=args.is_trainable, name=args.model_name)
         output = hub_layer(img_input)
-        class_layer = layers.Dense(1024, activation='relu', name='classifier')(output)
-        class_output = layers.Dense(len(args.label_names), activation='sigmoid', name='class')(class_layer)
+        label_layer = layers.Dense(1024, activation='relu', name='classifier')(output)
+        label_output = layers.Dense(len(args.label_names), activation='sigmoid', name='label')(label_layer)
         point_layer = layers.Dense(1024, activation='relu', name='regressor')(output)
         point_output = layers.Dense(len(args.point_names), activation='sigmoid', name='point')(point_layer)
-        model = models.Model(inputs=img_input, outputs=[class_output, point_output], name=args.model_name)
+        model = models.Model(inputs=img_input, outputs=[label_output, point_output], name=args.model_name)
         model.summary()
 
         # -------------------------------------------- Compiling the model ---------------------------------------------
-        if args.class_loss == 'f1':
-            class_loss = f1_loss
-        elif args.class_loss == 'bce':
-            class_loss = losses.BinaryCrossentropy(from_logits=False, label_smoothing=0)
+        if args.label_loss == 'f1':
+            label_loss = f1_loss
+        elif args.label_loss == 'bce':
+            label_loss = losses.BinaryCrossentropy(from_logits=False, label_smoothing=0)
         else:
-            raise ValueError('Incorrect CLASS_LOSS value, please change it!')
+            raise ValueError('Incorrect LABEL_LOSS value, please change it!')
 
         if args.point_loss == 'mae':
             point_loss = losses.MeanAbsoluteError()
@@ -409,7 +416,7 @@ class Net:
         else:
             raise ValueError('Incorrect POINT_LOSS value, please change it!')
 
-        class_metrics = [macro_f1,
+        label_metrics = [macro_f1,
                          tfa.metrics.F1Score(num_classes=len(args.label_names), average='micro', threshold=0.5, name='micro_f1'),
                          metrics.BinaryAccuracy(name='accuracy', threshold=0.5),
                          metrics.Precision(top_k=None, thresholds=0.5, name='precision'),
@@ -423,13 +430,13 @@ class Net:
                          metrics.MeanSquaredError(name='mse')]
 
         model.compile(optimizer=self.get_optimizer(args.optimizer, args.learning_rate),
-                      loss=[class_loss, point_loss],
-                      metrics=[class_metrics, point_metrics],
-                      loss_weights=[args.class_weight, args.point_weight])
+                      loss=[label_loss, point_loss],
+                      metrics=[label_metrics, point_metrics],
+                      loss_weights=[args.label_weight, args.point_weight])
         # model.compile(optimizer=self.get_optimizer(args.optimizer, args.learning_rate),
-        #               loss={'class': class_loss, 'point': point_loss},
-        #               metrics={'class': class_metrics, 'point': point_metrics},
-        #               loss_weights={'class': args.class_weight, 'point': args.point_weight})
+        #               loss={'label': label_loss, 'point': point_loss},
+        #               metrics={'label': label_metrics, 'point': point_metrics},
+        #               loss_weights={'label': args.label_weight, 'point': args.point_weight})
         return model
 
     def train_model(self):
@@ -463,7 +470,7 @@ class Net:
         for image, target in train_ds.take(1):
             print('-' * 100)
             print("Image batch shape...: {}".format(image.numpy().shape))
-            print("Class batch shape...: {}".format(target[0].numpy().shape))
+            print("Label batch shape...: {}".format(target[0].numpy().shape))
             print("Point batch shape...: {}".format(target[1].numpy().shape))
             print('-' * 100)
 
@@ -477,8 +484,8 @@ class Net:
                       model_name=args.model_name,
                       model_dir=args.train_model_dir,
                       optimizer=args.optimizer,
-                      class_loss=args.class_loss,
-                      class_weight=args.class_weight,
+                      label_loss=args.label_loss,
+                      label_weight=args.label_weight,
                       point_loss=args.point_loss,
                       point_weight=args.point_weight,
                       batch_size=args.batch_size,
@@ -516,7 +523,7 @@ class Net:
         print('Training options:')
         print('Model name............: {}'.format(args.model_name))
         print('Model directory.......: {}'.format(args.train_model_dir))
-        print('Classification loss...: {} (weight: {})'.format(args.class_loss, args.class_weight))
+        print('Classification loss...: {} (weight: {})'.format(args.label_loss, args.label_weight))
         print('Regression loss.......: {} (weight: {})'.format(args.point_loss, args.point_weight))
         print('Optimizer.............: {}'.format(args.optimizer))
         print('Learning rate.........: {}'.format(args.learning_rate))
@@ -549,26 +556,26 @@ class Net:
         print('\nTraining of the model took: {}'.format(get_timing(end - start)))
 
         # ------------------------------------ Show training and validation outputs ------------------------------------
-        class_loss, val_class_loss = history.history['class_loss'], history.history['val_class_loss']
+        label_loss, val_label_loss = history.history['label_loss'], history.history['val_label_loss']
         point_loss, val_point_loss = history.history['point_loss'], history.history['val_point_loss']
-        accuracy, val_accuracy = history.history['class_accuracy'], history.history['val_class_accuracy']
-        macro_f1, val_macro_f1 = history.history['class_macro_f1'], history.history['val_class_macro_f1']
-        micro_f1, val_micro_f1 = history.history['class_micro_f1'], history.history['val_class_micro_f1']
-        precision, val_precision = history.history['class_precision'], history.history['val_class_precision']
-        recall, val_recall = history.history['class_recall'], history.history['val_class_recall']
+        accuracy, val_accuracy = history.history['label_accuracy'], history.history['val_label_accuracy']
+        macro_f1, val_macro_f1 = history.history['label_macro_f1'], history.history['val_label_macro_f1']
+        micro_f1, val_micro_f1 = history.history['label_micro_f1'], history.history['val_label_micro_f1']
+        precision, val_precision = history.history['label_precision'], history.history['val_label_precision']
+        recall, val_recall = history.history['label_recall'], history.history['val_label_recall']
         mae, val_mae = history.history['point_mae'], history.history['val_point_mae']
         rmse, val_rmse = history.history['point_rmse'], history.history['val_point_rmse']
         mse, val_mse = history.history['point_mse'], history.history['val_point_mse']
 
         print('-' * 100)
-        print('Class prediction on training / validation')
-        print("Loss........: {:.2f} / {:.2f}".format(class_loss[-1], val_class_loss[-1]))
+        print('Label prediction on training / validation')
+        print("Loss........: {:.2f} / {:.2f}".format(label_loss[-1], val_label_loss[-1]))
         print("Accuracy....: {:.2f} / {:.2f}".format(accuracy[-1], val_accuracy[-1]))
         print("Macro F1....: {:.2f} / {:.2f}".format(macro_f1[-1], val_macro_f1[-1]))
         print("Micro F1....: {:.2f} / {:.2f}".format(micro_f1[-1], val_micro_f1[-1]))
         print("Precision...: {:.2f} / {:.2f}".format(precision[-1], val_precision[-1]))
         print("Recall......: {:.2f} / {:.2f}".format(recall[-1], val_recall[-1]))
-        print('\nPoint tracking on training / validation')
+        print('\nPoint prediction on training / validation')
         print("Loss........: {:.2f} / {:.2f}".format(point_loss[-1], val_point_loss[-1]))
         print("MAE.........: {:.2f} / {:.2f}".format(mae[-1], val_mae[-1]))
         print("RMSE........: {:.2f} / {:.2f}".format(rmse[-1], val_rmse[-1]))
@@ -631,7 +638,7 @@ class Net:
         print('-' * 100)
         return model_probs
 
-    def process_predictions(self, model_output, test_files, thresh_class, thresh_x, thresh_y):
+    def process_predictions(self, model_output, test_files, thresh_label, thresh_x, thresh_y):
             batch_labels = []
             batch_label_probs = []
             batch_point_coords = []
@@ -660,7 +667,7 @@ class Net:
                     raise ValueError('Number of classes and coordinates must be equal!')
 
                 # Get a list of the remaining points
-                inp_label_bin = inp_label_probs > thresh_class
+                inp_label_bin = inp_label_probs > thresh_label
                 x_coords = np.zeros((1, inp_label_probs.shape[1]), dtype=np.float)
                 y_coords = np.zeros((1, inp_label_probs.shape[1]), dtype=np.float)
                 for i in range(inp_label_probs.shape[1]):
@@ -836,7 +843,7 @@ if __name__ == '__main__':
     elif args.mode == 'test':
         model_output = net.test_model(test_model_dir=args.test_model_dir, test_files=args.test_files)
         images, labels, probs, coords = net.process_predictions(model_output=model_output, test_files=args.test_files,
-                                                                thresh_class=0.50, thresh_x=0.01, thresh_y=0.01)
+                                                                thresh_label=0.50, thresh_x=0.01, thresh_y=0.01)
         net.save_to_video(images=images, labels=labels, probs=probs, coords=coords, save_dir='video_prediction',
                           shape='star', add_label=True, add_prob=False, fps=7)
         net.save_to_images(images=images, labels=labels, probs=probs, coords=coords, save_dir='images_prediction',
