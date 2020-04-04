@@ -303,11 +303,12 @@ if __name__ == '__main__':
     # extract_images_from_video(video_dir='data/video', output_dims=(1000, 1000), save_freq=1, save_dir='data/temp')
 
     # Get XLSX data file using annotations and images
-    convert_json_to_xlsx(ann_dir='data/ann', img_dir='data/img', save_dir='data')
+    # convert_json_to_xlsx(ann_dir='data/ann', img_dir='data/img', save_dir='data')
 
     # Convert callback images to video
-    # ids = ['001', '006', '007', '010', '011', '013_042', '013_141', '014_050', '014_110', '015', '016_070', '016_180', '017']
-    # for id in ids:
-    #     convert_images_to_video(images_dir='models/MobileNet_V2_0104_2205/predictions_per_epoch',
-    #                             images_prefix=id, fps=10, save_dir='video_training')
+    ids = ['003_007', '003_034', '004_002', '004_013', '005_003', '005_007', '005_022', '008_030', '008_045', '009_003',
+           '009_023', '010_006', '010_031', '012_032', '012_063', '014_050', '014_110', '016_070', '016_180', '017_103']
+    for id in ids:
+        convert_images_to_video(images_dir='models/MobileNet_V2_0404_0503/predictions_per_epoch',
+                                images_prefix=id, fps=10, save_dir='video_training/MobileNet_V2_0404_0503')
     print('Complete!')
