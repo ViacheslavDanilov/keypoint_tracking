@@ -102,12 +102,12 @@ def convert_json_to_xlsx(ann_dir, img_dir, save_dir):
             ann_df.loc[idx, 'Points'] = num_points
 
             for point_idx in range(num_points):
-                point_class = json_data['objects'][point_idx]['classTitle']
+                point_label = json_data['objects'][point_idx]['classTitle']
                 point_x = json_data['objects'][point_idx]['points']['exterior'][0][0]
                 point_y = json_data['objects'][point_idx]['points']['exterior'][0][1]
-                ann_df.loc[idx, point_class] = 1
-                ann_df.loc[idx, point_class + '_x'] = point_x
-                ann_df.loc[idx, point_class + '_y'] = point_y
+                ann_df.loc[idx, point_label] = 1
+                ann_df.loc[idx, point_label + '_x'] = point_x
+                ann_df.loc[idx, point_label + '_y'] = point_y
             idx += 1
 
     xlsx_name = os.path.join(save_dir, 'data.xlsx')
