@@ -29,10 +29,10 @@ EPOCHS = 100
 OPTIMIZER = 'radam'
 CLASS_LOSS = 'bce'
 CLASS_WEIGHT = 1.
-POINT_LOSS = 'mae'
+POINT_LOSS = 'huber'
 POINT_WEIGHT = 1.
 IS_TRAINABLE = False
-
+# TODO: CHANGE TO LABEL_LOSS
 # ------------------------------------------------ Additional parameters -----------------------------------------------
 DATA_PATH = 'data/data.xlsx'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -402,6 +402,10 @@ class Net:
             point_loss = losses.MeanAbsoluteError()
         elif args.point_loss == 'mse':
             point_loss = losses.MeanSquaredError()
+        elif args.point_loss == 'huber':
+            point_loss = losses.Huber(delta=0.1)
+        elif args.point_loss == 'logcosh':
+            point_loss = losses.LogCosh()
         else:
             raise ValueError('Incorrect POINT_LOSS value, please change it!')
 
