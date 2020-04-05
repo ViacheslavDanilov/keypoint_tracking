@@ -156,7 +156,10 @@ class ImageSaver(tf.keras.callbacks.Callback):
             self.gt_coords.append(gt_point_coords)
 
     def on_epoch_end(self, epoch, logs=None):
+        start = time.time()
         model_probs = self.model.predict(self.imgs)
+        inference_time = (time.time() - start)/self.imgs.shape[0]
+        wandb.log({'inference_time': inference_time}, commit=False)
         images, pred_labels, pred_probs, pred_coords = self.net.process_predictions(model_output=model_probs, test_files=self.image_paths,
                                                                                     thresh_label=0.5, thresh_x=0.01, thresh_y=0.01)
         for idx, image in enumerate(images):
