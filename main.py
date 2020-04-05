@@ -22,10 +22,10 @@ from utils import get_random_dcm, f1_loss, macro_f1, get_timing, perfomance_grid
 
 # --------------------------------------------------- Main parameters --------------------------------------------------
 MODE = 'train'
-MODEL_NAME = 'MobileNet_V2'
+MODEL_NAME = 'ResNet_V2'
 BATCH_SIZE = 64
 LR = 1e-5
-EPOCHS = 5
+EPOCHS = 100
 OPTIMIZER = 'radam'
 LABEL_LOSS = 'bce'
 LABEL_WEIGHT = 1.
@@ -43,7 +43,7 @@ palette = sns.color_palette("pastel", n_colors=11)  # pastel, hls, Paired, Set2,
 TEST_FILES = ['data/img/001_025.png', 'data/img/002_028.png', 'data/img/003_032.png', 'data/img/004_016.png']
 # TEST_FILES = ['data/video/007.avi']
 # TEST_FILES = glob('data/img/*' + '004' + '_*')
-CALLBACK_IMAGES = ['data/img/003_007.png',  'data/img/003_034.png', 'data/img/004_002.png', 'data/img/004_013.png',
+CALLBACK_IMAGES = ['data/img/003_007.png', 'data/img/003_034.png', 'data/img/004_002.png', 'data/img/004_013.png',
                    'data/img/005_003.png', 'data/img/005_007.png', 'data/img/005_022.png', 'data/img/008_030.png',
                    'data/img/008_045.png', 'data/img/009_003.png', 'data/img/009_023.png', 'data/img/010_006.png',
                    'data/img/010_031.png', 'data/img/012_032.png', 'data/img/012_063.png', 'data/img/014_050.png',
@@ -176,14 +176,39 @@ class ImageSaver(tf.keras.callbacks.Callback):
             img_name, img_ext = os.path.splitext(img_name)[0], os.path.splitext(img_name)[1]
             save_name = img_name + '_epoch=' + str(epoch).zfill(3) + img_ext
             save_path = os.path.join(self.save_dir, save_name)
-            cv2.imwrite(save_path, 255*image)
-            if idx == 0:
-                wandb.log({'Patient_1': [wandb.Image(image)]}, commit=False)
-            elif idx == 9:
-                wandb.log({'Patient_2': [wandb.Image(image)]}, commit=False)
-            elif idx == 17:
-                wandb.log({'Patient_3': [wandb.Image(image)]}, commit=False)
+            image = (255*image).astype(np.uint8)
+            cv2.imwrite(save_path, image)
 
+            if idx == 0 or idx == 3 or idx == 9:    # 003_007, 004_013, 009_003
+                loss_val = logs['loss']
+                f1_val = logs['label_macro_f1']
+                mae_val = logs['point_mae']
+
+                note_height = 50
+                font = cv2.FONT_HERSHEY_DUPLEX
+                font_scale = 1
+                thickness = 1
+                note = 255 * np.ones(shape=(note_height, image.shape[1], image.shape[2]), dtype=np.uint8)
+
+                text = "Loss: {:.2f} | F1: {:.2f} | MAE: {:.2f}".format(loss_val, f1_val, mae_val)
+                text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
+                text_x = (note.shape[1] - text_size[0]) // 2
+                text_y = (note.shape[0] + text_size[1]) // 2
+
+                cv2.putText(img=note, text=text, org=(text_x, text_y), color=(0, 0, 0),
+                            fontFace=font, fontScale=font_scale, thickness=thickness, lineType=cv2.LINE_AA)
+                image = np.vstack((note, image))
+
+            if idx == 0:
+                wandb.log({'P1' + '_' + args.train_model_dir.split(os.sep)[1]: [wandb.Image(image)]}, commit=False)
+            elif idx == 3:
+                wandb.log({'P2' + '_' + args.train_model_dir.split(os.sep)[1]: [wandb.Image(image)]}, commit=False)
+            elif idx == 9:
+                wandb.log({'P3' + '_' + args.train_model_dir.split(os.sep)[1]: [wandb.Image(image)]}, commit=False)
+                # wandb.log({'Patient_1' + '_' + args.train_model_dir.split(os.sep)[1]: [wandb.Image(image)]}, commit=False)
+                # wandb.log({'P1' + '_' + self.model.name: [wandb.Image(image)]}, commit=False)
+                # wandb.log({'P1' + '_' + args.train_model_dir.split(os.sep)[1]: [wandb.Image(image)]}, commit=False)
+                # wandb.log({'P1' + '_' + save_path.split(os.sep)[1]: [wandb.Image(image)]}, commit=False)
 # ------------------------------------------ Data processing and prefetching -------------------------------------------
 class DataProcessor():
     def __init__(self):
@@ -209,8 +234,7 @@ class DataProcessor():
         Args:
             path_to_data: string representing path to xlsx dataset info
         """
-        # TODO: DELETE AFTER DEBUG
-        source_df = pandas.read_excel(path_to_data, index_col=None, na_values=['NA'], usecols="B:AM", nrows=1000)   # nrows=1752
+        source_df = pandas.read_excel(path_to_data, index_col=None, na_values=['NA'], usecols="B:AM")   # nrows=1752
         path_df = source_df['Path']
         label_df = source_df[args.label_names]
         point_df = source_df[args.point_names]
