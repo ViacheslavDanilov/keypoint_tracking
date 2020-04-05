@@ -13,9 +13,10 @@ import matplotlib.pyplot as plt
 import matplotlib.style as style
 from sklearn.metrics import f1_score
 
-def convert_images_to_video(images_dir, images_prefix, add_note, fps, save_dir):
+def convert_images_to_video(model_dir, images_prefix, add_note, fps, save_dir):
     if not os.path.isdir(save_dir):
         os.makedirs(save_dir)
+    images_dir = os.path.join('models', model_dir, 'predictions_per_epoch')
     image_paths = glob(images_dir + '/*' + images_prefix + '_*')
     image_paths.sort()
     image = cv2.imread(image_paths[0])
@@ -23,9 +24,8 @@ def convert_images_to_video(images_dir, images_prefix, add_note, fps, save_dir):
     note_height = 150
     if add_note:
         frame_size = (image.shape[0], image.shape[1] + note_height)
-        model_dir = os.path.split('models\\MobileNet_V2_0404_0503\\predictions_per_epoch')[0]
-        logs_path = os.path.join(model_dir, 'logs.csv')
-        cols_to_use = ['loss', 'class_macro_f1', 'point_mae']
+        logs_path = os.path.join('models', model_dir, 'logs.csv')
+        cols_to_use = ['loss', 'label_macro_f1', 'point_mae']
         logs = pandas.read_csv(logs_path, usecols=cols_to_use)[cols_to_use]
         logs = logs.to_numpy()
     else:
@@ -41,12 +41,12 @@ def convert_images_to_video(images_dir, images_prefix, add_note, fps, save_dir):
             font_scale = 1
             thickness = 1
             note = 255 * np.ones(shape=(note_height, image.shape[1], image.shape[2]), dtype=np.uint8)
-            text_1 = "Model: MobileNet_V2_0404_0503"
+            text_1 = "Model: {}".format(model_dir)
             text_size_1 = cv2.getTextSize(text_1, font, font_scale, thickness)[0]
             text_1_x = (note.shape[1] - text_size_1[0]) // 2
             text_1_y = (note.shape[0] + text_size_1[1]) // 2 - 45
 
-            text_2 = "Loss: {:.2f} F1: {:.2f} MAE: {:.2f}".format(logs[idx, 0], logs[idx, 1], logs[idx, 2])
+            text_2 = "Loss: {:.2f} | F1: {:.2f} | MAE: {:.2f}".format(logs[idx, 0], logs[idx, 1], logs[idx, 2])
             text_size_2 = cv2.getTextSize(text_2, font, font_scale, thickness)[0]
             text_2_x = (note.shape[1] - text_size_2[0]) // 2
             text_2_y = (note.shape[0] + text_size_2[1]) // 2
@@ -55,6 +55,7 @@ def convert_images_to_video(images_dir, images_prefix, add_note, fps, save_dir):
             text_size_3 = cv2.getTextSize(text_3, font, font_scale, thickness)[0]
             text_3_x = (note.shape[1] - text_size_3[0]) // 2
             text_3_y = (note.shape[0] + text_size_3[1]) // 2 + 45
+
             cv2.putText(img=note, text=text_1, org=(text_1_x, text_1_y), color=(0, 0, 0),
                         fontFace=font, fontScale=font_scale, thickness=thickness, lineType=cv2.LINE_AA)
             cv2.putText(img=note, text=text_2, org=(text_2_x, text_2_y), color=(0, 0, 0),
@@ -346,11 +347,10 @@ if __name__ == '__main__':
     # ids = ['003_007', '003_034', '004_002', '004_013', '005_003', '005_007', '005_022', '008_030', '008_045', '009_003',
     #        '009_023', '010_006', '010_031', '012_032', '012_063', '014_050', '014_110', '016_070', '016_180', '017_103']
     # model_dirs = ['MobileNet_V2_0404_0503',  'MobileNet_V2_0404_0630', 'MobileNet_V2_0404_0727', 'MobileNet_V2_0404_0925']
-    model_dirs = ['MobileNet_V2_0404_0503']
+    model_dirs = ['MobileNet_V2_0504_2249', 'MobileNet_V2_0604_0052']
     ids = ['003_007', '005_007', '008_030']
     for model_dir in model_dirs:
         for id in ids:
-            convert_images_to_video(images_dir=os.path.join('models', model_dir, 'predictions_per_epoch'),
-                                    images_prefix=id, fps=9, add_note=True,
+            convert_images_to_video(model_dir=model_dir, images_prefix=id, fps=9, add_note=True,
                                     save_dir=os.path.join('video_training', model_dir))
     print('Complete!')
