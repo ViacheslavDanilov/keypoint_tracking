@@ -22,7 +22,7 @@ from utils import get_random_dcm, f1_loss, macro_f1, get_timing, perfomance_grid
 
 # --------------------------------------------------- Main parameters --------------------------------------------------
 MODE = 'train'
-MODEL_NAME = 'ResNet_V2'
+MODEL_NAME = 'Inception_V3'
 BATCH_SIZE = 64
 LR = 1e-5
 EPOCHS = 100
@@ -54,11 +54,11 @@ POINT_NAMES = ['AA1_x', 'AA1_y', 'AA2_x', 'AA2_y', 'STJ1_x', 'STJ1_y', 'STJ2_x',
 POINT_COLORS = {'AA1': palette[0], 'AA2':  palette[1], 'STJ1':  palette[2], 'STJ2':  palette[3],
                 'CD':  palette[4], 'CM':  palette[5], 'CP':  palette[6], 'CT':  palette[7], 'PT':  palette[8],
                 'FE1':  palette[9], 'FE2':  palette[10]}
-if 'MobileNet_V2' or 'ResNet_V2' in MODEL_NAME:
+if MODEL_NAME == 'MobileNet_V2' or MODEL_NAME == 'ResNet_V2':
     IMG_SIZE = (224, 224, 3)
-elif 'Inception_V3' or 'Inception_ResNet_v2' in MODEL_NAME:
+elif MODEL_NAME == 'Inception_V3' or MODEL_NAME == 'Inception_ResNet_v2':
     IMG_SIZE = (299, 299, 3)
-elif 'EfficientNet_B7' in MODEL_NAME:
+elif MODEL_NAME == 'EfficientNet_B7':
     IMG_SIZE = (600, 600, 3)
 else:
     raise ValueError('Incorrect MODEL_NAME, please change it!')
