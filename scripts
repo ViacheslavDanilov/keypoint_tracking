@@ -1,5 +1,8 @@
 1. Training model
 python main.py -mo=train -mn=MobileNet_V2
 
+3. Training several models
+python main.py -mo=train -mn=MobileNet_V2; python main.py -mo=train -mn=MobileNet_V2 -ist
+
 2. Testing model
 python main.py -mo=test -tmd=models/MobileNet_V2_2703_2250
