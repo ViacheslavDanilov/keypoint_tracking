@@ -25,7 +25,7 @@ def convert_images_to_video(model_dir, images_prefix, add_note, fps, save_dir):
     if add_note:
         frame_size = (image.shape[0], image.shape[1] + note_height)
         logs_path = os.path.join('models', model_dir, 'logs.csv')
-        cols_to_use = ['loss', 'label_macro_f1', 'point_mae']
+        cols_to_use = ['total_loss', 'label_macro_f1', 'point_mae']
         logs = pandas.read_csv(logs_path, usecols=cols_to_use)[cols_to_use]
         logs = logs.to_numpy()
     else:
@@ -347,7 +347,7 @@ if __name__ == '__main__':
     # ids = ['003_007', '003_034', '004_002', '004_013', '005_003', '005_007', '005_022', '008_030', '008_045', '009_003',
     #        '009_023', '010_006', '010_031', '012_032', '012_063', '014_050', '014_110', '016_070', '016_180', '017_103']
     # model_dirs = ['MobileNet_V2_0404_0503',  'MobileNet_V2_0404_0630', 'MobileNet_V2_0404_0727', 'MobileNet_V2_0404_0925']
-    model_dirs = ['MobileNet_V2_0504_2249', 'MobileNet_V2_0604_0052']
+    model_dirs = ['MobileNet_V2_0804_1043']
     ids = ['003_007', '005_007', '008_030']
     for model_dir in model_dirs:
         for id in ids:
