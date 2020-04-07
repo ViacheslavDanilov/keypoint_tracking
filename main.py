@@ -2,6 +2,7 @@ import os
 import cv2
 import time
 import yaml
+import json
 import wandb
 import pandas
 import argparse
@@ -17,20 +18,20 @@ import tensorflow_addons as tfa
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MultiLabelBinarizer
 from tensorflow.keras import layers, models, optimizers, losses, metrics
-from tensorflow.keras.callbacks import EarlyStopping, CSVLogger, ModelCheckpoint
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from utils import get_random_dcm, f1_loss, macro_f1, get_timing, perfomance_grid
 
 # --------------------------------------------------- Main parameters --------------------------------------------------
 MODE = 'train'
-MODEL_NAME = 'Inception_V3'
+MODEL_NAME = 'MobileNet_V2'
 BATCH_SIZE = 64
 LR = 1e-5
 EPOCHS = 100
 OPTIMIZER = 'radam'
 LABEL_LOSS = 'bce'
-LABEL_WEIGHT = 1.
+LABEL_LOSS_WEIGHT = 1.0
 POINT_LOSS = 'logcosh'
-POINT_WEIGHT = 10.
+POINT_LOSS_WEIGHT = 10.0
 IS_TRAINABLE = False
 
 # ------------------------------------------------ Additional parameters -----------------------------------------------
@@ -38,7 +39,7 @@ DATA_PATH = 'data/data.xlsx'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 BUFFER_SIZE = 4000
 VERBOSE = 1
-TEST_MODEL_DIR = 'models/MobileNet_V2_2703_2250'
+TEST_MODEL_DIR = 'models/MobileNet_V2_0804_0730'
 palette = sns.color_palette("pastel", n_colors=11)  # pastel, hls, Paired, Set2, Set3
 TEST_FILES = ['data/img/001_025.png', 'data/img/002_028.png', 'data/img/003_032.png', 'data/img/004_016.png']
 # TEST_FILES = ['data/video/007.avi']
@@ -54,14 +55,6 @@ POINT_NAMES = ['AA1_x', 'AA1_y', 'AA2_x', 'AA2_y', 'STJ1_x', 'STJ1_y', 'STJ2_x',
 POINT_COLORS = {'AA1': palette[0], 'AA2':  palette[1], 'STJ1':  palette[2], 'STJ2':  palette[3],
                 'CD':  palette[4], 'CM':  palette[5], 'CP':  palette[6], 'CT':  palette[7], 'PT':  palette[8],
                 'FE1':  palette[9], 'FE2':  palette[10]}
-if MODEL_NAME == 'MobileNet_V2' or MODEL_NAME == 'ResNet_V2':
-    IMG_SIZE = (224, 224, 3)
-elif MODEL_NAME == 'Inception_V3' or MODEL_NAME == 'Inception_ResNet_v2':
-    IMG_SIZE = (299, 299, 3)
-elif MODEL_NAME == 'EfficientNet_B7':
-    IMG_SIZE = (600, 600, 3)
-else:
-    raise ValueError('Incorrect MODEL_NAME, please change it!')
 
 # -------------------------------------------- Initialize ArgParse container -------------------------------------------
 parser = argparse.ArgumentParser(description='Keypoint tracking and classification')
@@ -71,14 +64,13 @@ parser.add_argument('-mn', '--model_name', metavar='', default=MODEL_NAME, type=
 parser.add_argument('-opt', '--optimizer', metavar='', default=OPTIMIZER, type=str, help='type of an optimizer')
 parser.add_argument('-clo', '--label_loss', metavar='', default=LABEL_LOSS, type=str, help='classification loss')
 parser.add_argument('-plo', '--point_loss', metavar='', default=POINT_LOSS, type=str, help='regression loss')
-parser.add_argument('-cw', '--label_weight', metavar='', default=LABEL_WEIGHT, type=float, help='label loss weight')
-parser.add_argument('-pw', '--point_weight', metavar='', default=POINT_WEIGHT, type=float, help='point loss weight')
+parser.add_argument('-cw', '--label_loss_weight', metavar='', default=LABEL_LOSS_WEIGHT, type=float, help='label loss weight')
+parser.add_argument('-pw', '--point_loss_weight', metavar='', default=POINT_LOSS_WEIGHT, type=float, help='point loss weight')
 parser.add_argument('-lr', '--learning_rate', metavar='', default=LR, type=float, help='learning rate')
 parser.add_argument('-bas', '--batch_size', metavar='', default=BATCH_SIZE, type=int, help='batch size')
 parser.add_argument('-ep', '--epochs', metavar='', default=EPOCHS, type=int, help='number of epochs for training')
 parser.add_argument('-bus', '--buffer_size', metavar='', default=BUFFER_SIZE, type=int, help='buffer size')
 parser.add_argument('-ist', '--is_trainable', action='store_true', default=IS_TRAINABLE, help='whether to train backbone')
-parser.add_argument('--img_size', metavar='', default=IMG_SIZE, type=int, help='image size')
 parser.add_argument('--callback_images', metavar='', default=CALLBACK_IMAGES, type=list, help='images for callback prediction')
 # Testing arguments
 parser.add_argument('-tmd', '--test_model_dir', metavar='', default=TEST_MODEL_DIR, type=str, help='model directory for testing mode')
@@ -89,6 +81,23 @@ parser.add_argument('--point_colors', metavar='', default=POINT_COLORS, type=dic
 parser.add_argument('--label_names', metavar='', default=LABEL_NAMES, type=list, help='list of label names')
 parser.add_argument('--point_names', metavar='', default=POINT_NAMES, type=list, help='list of point names')
 args = parser.parse_args()
+
+if args.model_name == 'MobileNet_V2' or args.model_name == 'ResNet_V2':
+    args.img_size = (224, 224, 3)
+elif args.model_name == 'Inception_V3' or args.model_name == 'Inception_ResNet_v2':
+    args.img_size = (299, 299, 3)
+elif args.model_name == 'EfficientNet_B7':
+    args.img_size = (600, 600, 3)
+else:
+    raise ValueError('Incorrect MODEL_NAME, please change it!')
+
+# ----------------------------------------- Callback for logging total loss --------------------------------------------
+class TotalLossLogger(tf.keras.callbacks.Callback):
+    def on_epoch_end(self, epoch, logs=None):
+        total_loss = args.label_loss_weight * logs['label_loss'] + args.point_loss_weight * logs['point_loss']
+        val_total_loss = args.label_loss_weight * logs['val_label_loss'] + args.point_loss_weight * logs['val_point_loss']
+        wandb.log({'total_loss': total_loss}, commit=False)
+        wandb.log({'val_total_loss': val_total_loss}, commit=False)
 
 # -------------------------------------------- Callback for saving images ----------------------------------------------
 class ImageSaver(tf.keras.callbacks.Callback):
@@ -159,6 +168,10 @@ class ImageSaver(tf.keras.callbacks.Callback):
         start = time.time()
         model_probs = self.model.predict(self.imgs)
         inference_time = (time.time() - start)/self.imgs.shape[0]
+        print('\n')
+        print('-' * 100)
+        print('Inference time: {:.3f} seconds'.format(inference_time))
+        print('-' * 100)
         wandb.log({'inference_time': inference_time}, commit=False)
         images, pred_labels, pred_probs, pred_coords = self.net.process_predictions(model_output=model_probs, test_files=self.image_paths,
                                                                                     thresh_label=0.5, thresh_x=0.01, thresh_y=0.01)
@@ -183,7 +196,7 @@ class ImageSaver(tf.keras.callbacks.Callback):
             cv2.imwrite(save_path, image)
 
             if idx == 0 or idx == 3 or idx == 9:    # 003_007, 004_013, 009_003
-                loss_val = logs['loss']
+                loss_val = args.label_loss_weight * logs['label_loss'] + args.point_loss_weight * logs['point_loss']
                 f1_val = logs['label_macro_f1']
                 mae_val = logs['point_mae']
 
@@ -208,10 +221,7 @@ class ImageSaver(tf.keras.callbacks.Callback):
                 wandb.log({'P2' + '_' + args.train_model_dir.split(os.sep)[1]: [wandb.Image(image)]}, commit=False)
             elif idx == 9:
                 wandb.log({'P3' + '_' + args.train_model_dir.split(os.sep)[1]: [wandb.Image(image)]}, commit=False)
-                # wandb.log({'Patient_1' + '_' + args.train_model_dir.split(os.sep)[1]: [wandb.Image(image)]}, commit=False)
-                # wandb.log({'P1' + '_' + self.model.name: [wandb.Image(image)]}, commit=False)
-                # wandb.log({'P1' + '_' + args.train_model_dir.split(os.sep)[1]: [wandb.Image(image)]}, commit=False)
-                # wandb.log({'P1' + '_' + save_path.split(os.sep)[1]: [wandb.Image(image)]}, commit=False)
+
 # ------------------------------------------ Data processing and prefetching -------------------------------------------
 class DataProcessor():
     def __init__(self):
@@ -237,7 +247,8 @@ class DataProcessor():
         Args:
             path_to_data: string representing path to xlsx dataset info
         """
-        source_df = pandas.read_excel(path_to_data, index_col=None, na_values=['NA'], usecols="B:AM")   # nrows=1752
+        # TODO: nrows=500
+        source_df = pandas.read_excel(path_to_data, index_col=None, na_values=['NA'], usecols="B:AM")
         path_df = source_df['Path']
         label_df = source_df[args.label_names]
         point_df = source_df[args.point_names]
@@ -430,7 +441,7 @@ class Net:
         elif args.label_loss == 'bce':
             label_loss = losses.BinaryCrossentropy(from_logits=False, label_smoothing=0)
         else:
-            raise ValueError('Incorrect LABEL_LOSS value, please change it!')
+            raise ValueError('Incorrect LABEL_LOSS value, please check it!')
 
         if args.point_loss == 'mae':
             point_loss = losses.MeanAbsoluteError()
@@ -441,7 +452,7 @@ class Net:
         elif args.point_loss == 'logcosh':
             point_loss = losses.LogCosh()
         else:
-            raise ValueError('Incorrect POINT_LOSS value, please change it!')
+            raise ValueError('Incorrect POINT_LOSS value, please check it!')
 
         label_metrics = [macro_f1,
                          tfa.metrics.F1Score(num_classes=len(args.label_names), average='micro', threshold=0.5, name='micro_f1'),
@@ -459,11 +470,11 @@ class Net:
         model.compile(optimizer=self.get_optimizer(args.optimizer, args.learning_rate),
                       loss=[label_loss, point_loss],
                       metrics=[label_metrics, point_metrics],
-                      loss_weights=[args.label_weight, args.point_weight])
+                      loss_weights=[args.label_loss_weight, args.point_loss_weight])
         # model.compile(optimizer=self.get_optimizer(args.optimizer, args.learning_rate),
         #               loss={'label': label_loss, 'point': point_loss},
         #               metrics={'label': label_metrics, 'point': point_metrics},
-        #               loss_weights={'label': args.label_weight, 'point': args.point_weight})
+        #               loss_weights={'label': args.label_loss_weight, 'point': args.point_loss_weight})
         return model
 
     def train_model(self):
@@ -488,9 +499,9 @@ class Net:
         print('-' * 100)
 
         # train_ds = data_processor.create_dataset(X_train, y_train, z_train,
-        #                                          is_caching=False, cache_name='train_' + str(args.img_size[0]))
+        #                                          is_caching=True, cache_name='train_' + str(args.img_size[0]))
         # val_ds = data_processor.create_dataset(X_val, y_val, z_val,
-        #                                        is_caching=False, cache_name='val_' + str(args.img_size[0]))
+        #                                        is_caching=True, cache_name='val_' + str(args.img_size[0]))
         train_ds = data_processor.create_dataset(X_train, y_train, z_train, is_caching=True, cache_name=None)
         val_ds = data_processor.create_dataset(X_val, y_val, z_val, is_caching=True, cache_name=None)
 
@@ -512,33 +523,32 @@ class Net:
                       model_dir=args.train_model_dir,
                       optimizer=args.optimizer,
                       label_loss=args.label_loss,
-                      label_weight=args.label_weight,
+                      label_loss_weight=args.label_loss_weight,
                       point_loss=args.point_loss,
-                      point_weight=args.point_weight,
+                      point_loss_weight=args.point_loss_weight,
                       batch_size=args.batch_size,
                       buffer_size=args.buffer_size,
                       epochs=args.epochs,
                       learning_rate=args.learning_rate,
                       trainable_backbone=args.is_trainable)
         wandb.init(project='tavr', dir=args.train_model_dir, name=run_name, sync_tensorboard=True, config=params)
-        wandb.run.id = wandb.run.id
         wandb.config.update(params)
 
         # -------------------------------------------  Initialize callbacks --------------------------------------------
+        loss_logger = TotalLossLogger()
         img_saver = ImageSaver(image_paths=args.callback_images, save_dir='predictions_per_epoch', draw_gt=True)
-        csv_logger = CSVLogger(os.path.join(args.train_model_dir, 'logs.csv'), separator=',', append=False)
         check_pointer = ModelCheckpoint(filepath=os.path.join(args.train_model_dir, 'weights.h5'),
                                         monitor='val_loss',
                                         save_best_only=True,
                                         save_weights_only=False,
                                         mode='min',
                                         verbose=1)
-        wb_logger = wandb.keras.WandbCallback(monitor='val_loss',
-                                              mode='min',
-                                              save_weights_only=False,
-                                              save_model=False,
-                                              log_evaluation=False,
-                                              verbose=1)
+        wandb_logger = wandb.keras.WandbCallback(monitor='val_loss',
+                                                 mode='min',
+                                                 save_weights_only=False,
+                                                 save_model=False,
+                                                 log_evaluation=False,
+                                                 verbose=1)
         earlystop = EarlyStopping(monitor='val_loss',
                                   min_delta=0.005,
                                   patience=5,
@@ -550,8 +560,8 @@ class Net:
         print('Training options:')
         print('Model name............: {}'.format(args.model_name))
         print('Model directory.......: {}'.format(args.train_model_dir))
-        print('Classification loss...: {} (weight: {})'.format(args.label_loss, args.label_weight))
-        print('Regression loss.......: {} (weight: {})'.format(args.point_loss, args.point_weight))
+        print('Classification loss...: {} (weight: {})'.format(args.label_loss, args.label_loss_weight))
+        print('Regression loss.......: {} (weight: {})'.format(args.point_loss, args.point_loss_weight))
         print('Optimizer.............: {}'.format(args.optimizer))
         print('Learning rate.........: {}'.format(args.learning_rate))
         print('Batch size............: {}'.format(args.batch_size))
@@ -578,9 +588,26 @@ class Net:
         history = model.fit(x=train_ds,
                             epochs=args.epochs,
                             validation_data=val_ds,
-                            callbacks=[csv_logger, wb_logger, img_saver, check_pointer, earlystop])
+                            verbose=1,
+                            callbacks=[loss_logger, img_saver, check_pointer, wandb_logger, earlystop])
         end = time.time()
         print('\nTraining of the model took: {}'.format(get_timing(end - start)))
+
+        # --------------------------------------- Save WANDB history for the run ---------------------------------------
+        wandb_dir = os.path.join(args.train_model_dir, 'wandb')
+        for root, dirs, files in os.walk(wandb_dir):
+            for file in files:
+                if file == 'wandb-history.jsonl':
+                    history_path = os.path.join(root, file)
+                    metrics_df = pandas.DataFrame()
+                    with open(history_path) as f:
+                        for line in f:
+                            row = json.loads(line)
+                            metrics_row = pandas.DataFrame.from_records(data=[row])
+                            metrics_df = metrics_df.append(metrics_row)
+                    metrics_df = metrics_df.drop(metrics_df.columns[[0, 1, 2, 4, 5]], axis=1)
+                    metrics_df.to_csv(os.path.join(args.train_model_dir, "logs.csv"), index=False)
+                    break
 
         # ------------------------------------ Show training and validation outputs ------------------------------------
         label_loss, val_label_loss = history.history['label_loss'], history.history['val_label_loss']
