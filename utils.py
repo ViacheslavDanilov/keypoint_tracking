@@ -347,10 +347,10 @@ if __name__ == '__main__':
     # ids = ['003_007', '003_034', '004_002', '004_013', '005_003', '005_007', '005_022', '008_030', '008_045', '009_003',
     #        '009_023', '010_006', '010_031', '012_032', '012_063', '014_050', '014_110', '016_070', '016_180', '017_103']
     # model_dirs = ['MobileNet_V2_0404_0503',  'MobileNet_V2_0404_0630', 'MobileNet_V2_0404_0727', 'MobileNet_V2_0404_0925']
-    model_dirs = ['MobileNet_V2_0804_1043']
+    model_dirs = ['MobileNet_V2_0804_1056']
     ids = ['003_007', '005_007', '008_030']
     for model_dir in model_dirs:
         for id in ids:
             convert_images_to_video(model_dir=model_dir, images_prefix=id, fps=9, add_note=True,
-                                    save_dir=os.path.join('video_training', model_dir))
+                                    save_dir=os.path.join('training_video', model_dir))
     print('Complete!')
