@@ -39,7 +39,7 @@ DATA_PATH = 'data/data.xlsx'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 BUFFER_SIZE = 4000
 VERBOSE = 1
-TEST_MODEL_DIR = 'models/MobileNet_V2_0804_0730'
+TEST_MODEL_DIR = 'models/MobileNet_V2_0804_1056'
 palette = sns.color_palette("pastel", n_colors=11)  # pastel, hls, Paired, Set2, Set3
 TEST_FILES = ['data/img/001_025.png', 'data/img/002_028.png', 'data/img/003_032.png', 'data/img/004_016.png']
 # TEST_FILES = ['data/video/007.avi']
@@ -91,8 +91,19 @@ elif args.model_name == 'EfficientNet_B7':
 else:
     raise ValueError('Incorrect MODEL_NAME, please change it!')
 
+# ----------------------------------------- Callback for logging parameters --------------------------------------------
+class ParamsLogger(tf.keras.callbacks.Callback):
+    def __init__(self, trainable_params, non_trainable_params):
+        self.trainable_params = trainable_params
+        self.non_trainable_params = non_trainable_params
+        self.total_params = self.trainable_params + self.non_trainable_params
+    def on_epoch_end(self, epoch, logs=None):
+        wandb.log({'total_params': self.total_params}, commit=False)
+        wandb.log({'trainable_params': self.trainable_params}, commit=False)
+        wandb.log({'non_trainable_params': self.non_trainable_params}, commit=False)
+
 # ----------------------------------------- Callback for logging total loss --------------------------------------------
-class TotalLossLogger(tf.keras.callbacks.Callback):
+class LossLogger(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
         total_loss = args.label_loss_weight * logs['label_loss'] + args.point_loss_weight * logs['point_loss']
         val_total_loss = args.label_loss_weight * logs['val_label_loss'] + args.point_loss_weight * logs['val_point_loss']
@@ -534,8 +545,31 @@ class Net:
         wandb.init(project='tavr', dir=args.train_model_dir, name=run_name, sync_tensorboard=True, config=params)
         wandb.config.update(params)
 
+        # ------------------------------------------- Show training options --------------------------------------------
+        print('-' * 100)
+        print('Training options:')
+        print('Model name............: {}'.format(args.model_name))
+        print('Model directory.......: {}'.format(args.train_model_dir))
+        print('Classification loss...: {} (weight: {})'.format(args.label_loss, args.label_loss_weight))
+        print('Regression loss.......: {} (weight: {})'.format(args.point_loss, args.point_loss_weight))
+        print('Optimizer.............: {}'.format(args.optimizer))
+        print('Learning rate.........: {}'.format(args.learning_rate))
+        print('Batch size............: {}'.format(args.batch_size))
+        print('Epochs................: {}'.format(args.epochs))
+        print('Trainable backbone....: {}'.format(args.is_trainable))
+        print('Image dimensions......: {}x{}x{}'.format(args.img_size[0], args.img_size[1], args.img_size[2]))
+        print('Buffer size...........: {}'.format(args.buffer_size))
+        print('-' * 100)
+
+        # ------------------------------------------------- Build model ------------------------------------------------
+        model = self.build_model()
+        self.save_model(model=model)
+        trainable_params = np.sum([tf.keras.backend.count_params(w) for w in model.trainable_weights])
+        non_trainable_params = np.sum([tf.keras.backend.count_params(w) for w in model.non_trainable_weights])
+
         # -------------------------------------------  Initialize callbacks --------------------------------------------
-        loss_logger = TotalLossLogger()
+        params_logger = ParamsLogger(trainable_params=trainable_params, non_trainable_params=non_trainable_params)
+        loss_logger = LossLogger()
         img_saver = ImageSaver(image_paths=args.callback_images, save_dir='predictions_per_epoch', draw_gt=True)
         check_pointer = ModelCheckpoint(filepath=os.path.join(args.train_model_dir, 'weights.h5'),
                                         monitor='val_loss',
@@ -555,27 +589,7 @@ class Net:
                                   mode='min',
                                   verbose=1)
 
-        # ------------------------------------------- Show training options --------------------------------------------
-        print('-' * 100)
-        print('Training options:')
-        print('Model name............: {}'.format(args.model_name))
-        print('Model directory.......: {}'.format(args.train_model_dir))
-        print('Classification loss...: {} (weight: {})'.format(args.label_loss, args.label_loss_weight))
-        print('Regression loss.......: {} (weight: {})'.format(args.point_loss, args.point_loss_weight))
-        print('Optimizer.............: {}'.format(args.optimizer))
-        print('Learning rate.........: {}'.format(args.learning_rate))
-        print('Batch size............: {}'.format(args.batch_size))
-        print('Epochs................: {}'.format(args.epochs))
-        print('Trainable backbone....: {}'.format(args.is_trainable))
-        print('Image dimensions......: {}x{}x{}'.format(args.img_size[0], args.img_size[1], args.img_size[2]))
-        print('Buffer size...........: {}'.format(args.buffer_size))
-        print('-' * 100)
-
-        # --------------------------------------- Get model and then train it ------------------------------------------
-        model = self.build_model()
-        self.save_model(model=model)
-
-        # Check model's operability
+        # ------------------------------------------ Check model's operability -----------------------------------------
         for batch in val_ds:
             print('-' * 100)
             print("Model operability test")
@@ -584,12 +598,13 @@ class Net:
             print('-' * 100)
             break
 
+        # ------------------------------------------------- Train model ------------------------------------------------
         start = time.time()
         history = model.fit(x=train_ds,
                             epochs=args.epochs,
                             validation_data=val_ds,
                             verbose=1,
-                            callbacks=[loss_logger, img_saver, check_pointer, wandb_logger, earlystop])
+                            callbacks=[params_logger, loss_logger, img_saver, check_pointer, wandb_logger, earlystop])
         end = time.time()
         print('\nTraining of the model took: {}'.format(get_timing(end - start)))
 
@@ -767,6 +782,8 @@ class Net:
             return batch_images, batch_labels, batch_label_probs, batch_point_coords
 
     def show_predictions(self, images, labels, probs, coords, verbose, save_dir, shape, add_label, add_prob):
+        model_dir = os.path.basename(args.test_model_dir)
+        save_dir = os.path.join(save_dir, model_dir)
         for idx, (image, label, prob, coord) in enumerate(zip(images, labels, probs, coords)):
             img_path = args.test_files[idx]
 
@@ -797,6 +814,8 @@ class Net:
                 raise ValueError('Incorrect VERBOSE value, please check it!')
 
     def save_to_images(self, images, labels, probs, coords, save_dir, shape, add_label, add_prob):
+        model_dir = os.path.basename(args.test_model_dir)
+        save_dir = os.path.join(save_dir, model_dir)
         if not os.path.isdir(save_dir):
             os.makedirs(save_dir)
         for idx, (image, label, prob, coord) in enumerate(zip(images, labels, probs, coords)):
@@ -808,6 +827,8 @@ class Net:
         # plt.imshow(img_labeled)
 
     def save_to_video(self, images, probs, labels, coords, save_dir, shape, add_label, add_prob, fps):
+        model_dir = os.path.basename(args.test_model_dir)
+        save_dir = os.path.join(save_dir, model_dir)
         if not os.path.isdir(save_dir):
             os.makedirs(save_dir)
         output_size = (images.shape[1], images.shape[2])
@@ -898,11 +919,11 @@ if __name__ == '__main__':
         model_output = net.test_model(test_model_dir=args.test_model_dir, test_files=args.test_files)
         images, labels, probs, coords = net.process_predictions(model_output=model_output, test_files=args.test_files,
                                                                 thresh_label=0.50, thresh_x=0.01, thresh_y=0.01)
-        net.save_to_video(images=images, labels=labels, probs=probs, coords=coords, save_dir='video_prediction',
+        net.save_to_video(images=images, labels=labels, probs=probs, coords=coords, save_dir='predictions_video',
                           shape='star', add_label=True, add_prob=False, fps=7)
-        net.save_to_images(images=images, labels=labels, probs=probs, coords=coords, save_dir='images_prediction',
+        net.save_to_images(images=images, labels=labels, probs=probs, coords=coords, save_dir='predictions_image',
                            shape='star', add_label=True, add_prob=True)
-        net.show_predictions(images=images, labels=labels, probs=probs, coords=coords, verbose=1, save_dir='plt_prediction',
+        net.show_predictions(images=images, labels=labels, probs=probs, coords=coords, verbose=1, save_dir='predictions_plt',
                              shape='star', add_label=True, add_prob=False)
     else:
         raise ValueError('Incorrect MODE value, please check it!')
