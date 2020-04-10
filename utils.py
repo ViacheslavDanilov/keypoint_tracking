@@ -1,6 +1,7 @@
 import os
 import cv2
 import json
+import wandb
 import random
 import pandas
 import numpy as np
@@ -12,7 +13,6 @@ import tensorflow_addons as tfa
 import matplotlib.pyplot as plt
 import matplotlib.style as style
 from sklearn.metrics import f1_score
-
 def convert_images_to_video(model_dir, images_prefix, add_note, fps, save_dir):
     if not os.path.isdir(save_dir):
         os.makedirs(save_dir)
@@ -335,6 +335,39 @@ def perfomance_grid(ds, target, label_names, model, save_dir, n_thresh=100):
     grid.to_excel(grid_name, sheet_name='Perfomance', index=True, startrow=0, startcol=0)
     return grid
 
+def pull_video_to_wandb(project, run_name, video_dir, fps, models_dir = 'models'):
+    run_folder = os.path.join(models_dir, run_name, 'wandb')
+    dir_list = os.listdir(run_folder)
+    # run_id = dir_list[1]
+    # run_id = run_id.split('-')
+    # run_id = run_id[2]
+    wandb.init(entity='viacheslav_danilov',
+               project=project,
+               # id=run_id,
+               name=run_name,
+               resume=True)
+    video_paths = glob(os.path.join(video_dir, run_name) + '/*.avi')
+    for idx, video_path in enumerate(video_paths):
+        video = convert_video_to_ndarray(video_path)
+        wandb.log({"V" + str(idx+1) + '_' + run_name: wandb.Video(data_or_path=video, fps=fps, format='mp4')}, commit=False)
+    print('Pulling to WANDB complete!')
+
+def convert_video_to_ndarray(video_path):
+    cap = cv2.VideoCapture(video_path)
+    num_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))             # TODO: num_frames-1
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    video = np.empty(shape=(num_frames, frame_height, frame_width, 3), dtype=np.dtype('uint8'))
+    frame_counter = 0
+    ret = True
+    while (frame_counter < num_frames and ret):
+        ret, video[frame_counter] = cap.read()
+        frame_counter += 1
+    cap.release()
+    video = np.swapaxes(video, axis1=1, axis2=3)
+    video = np.swapaxes(video, axis1=2, axis2=3)
+    return video
+
 # ------------------------------------------------------- Handler ------------------------------------------------------
 if __name__ == '__main__':
     # Extract images from video
@@ -346,11 +379,15 @@ if __name__ == '__main__':
     # Convert callback images to video
     # ids = ['003_007', '003_034', '004_002', '004_013', '005_003', '005_007', '005_022', '008_030', '008_045', '009_003',
     #        '009_023', '010_006', '010_031', '012_032', '012_063', '014_050', '014_110', '016_070', '016_180', '017_103']
-    # model_dirs = ['MobileNet_V2_0404_0503',  'MobileNet_V2_0404_0630', 'MobileNet_V2_0404_0727', 'MobileNet_V2_0404_0925']
-    model_dirs = ['MobileNet_V2_0804_1056']
-    ids = ['003_007', '005_007', '008_030']
+    ids = ['003_007', '004_013', '009_003']
+    model_dirs = ['MobileNet_V2_0904_0214', 'ResNet_V2_0904_0756']
     for model_dir in model_dirs:
         for id in ids:
-            convert_images_to_video(model_dir=model_dir, images_prefix=id, fps=9, add_note=True,
-                                    save_dir=os.path.join('training_video', model_dir))
-    print('Complete!')
+            convert_images_to_video(model_dir=model_dir, images_prefix=id, fps=8, add_note=True,
+                                    save_dir=os.path.join('video_training', model_dir))
+
+    # Pull video to WANDB server
+    run_names = ['MobileNet_V2_0904_0214', 'ResNet_V2_0904_0756']
+    video_dir = 'video_training'
+    for run_name in run_names:
+        pull_video_to_wandb(project='temp', run_name=run_name, video_dir=video_dir, fps=7)
