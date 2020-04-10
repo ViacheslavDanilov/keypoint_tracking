@@ -22,11 +22,12 @@ from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from utils import get_random_dcm, f1_loss, macro_f1, get_timing, perfomance_grid
 
 # --------------------------------------------------- Main parameters --------------------------------------------------
+# Training
 MODE = 'train'
-MODEL_NAME = 'MobileNet_V2'
+MODEL_NAME = 'EfficientNet_B5'
 BATCH_SIZE = 64
 LR = 1e-5
-EPOCHS = 100
+EPOCHS = 100                    # TODO: Checkpoint
 OPTIMIZER = 'radam'
 LABEL_LOSS = 'bce'
 LABEL_LOSS_WEIGHT = 1.0
@@ -34,16 +35,19 @@ POINT_LOSS = 'logcosh'
 POINT_LOSS_WEIGHT = 10.0
 IS_TRAINABLE = False
 
+# Testing
+TEST_MODEL_DIR = 'models/ResNet_V2_0904_0756'
+TEST_FILES = ['data/video/004.avi']     # 001, 004, 016
+VERBOSE = 1
+# TEST_FILES = ['data/img/001_025.png', 'data/img/002_028.png', 'data/img/003_032.png', 'data/img/004_016.png']
+# TEST_FILES = glob('data/img/*' + '004' + '_*')
+
 # ------------------------------------------------ Additional parameters -----------------------------------------------
 DATA_PATH = 'data/data.xlsx'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 BUFFER_SIZE = 4000
-VERBOSE = 1
-TEST_MODEL_DIR = 'models/MobileNet_V2_0804_1056'
 palette = sns.color_palette("pastel", n_colors=11)  # pastel, hls, Paired, Set2, Set3
-TEST_FILES = ['data/img/001_025.png', 'data/img/002_028.png', 'data/img/003_032.png', 'data/img/004_016.png']
-# TEST_FILES = ['data/video/007.avi']
-# TEST_FILES = glob('data/img/*' + '004' + '_*')
+
 CALLBACK_IMAGES = ['data/img/003_007.png', 'data/img/003_034.png', 'data/img/004_002.png', 'data/img/004_013.png',
                    'data/img/005_003.png', 'data/img/005_007.png', 'data/img/005_022.png', 'data/img/008_030.png',
                    'data/img/008_045.png', 'data/img/009_003.png', 'data/img/009_023.png', 'data/img/010_006.png',
@@ -86,8 +90,8 @@ if args.model_name == 'MobileNet_V2' or args.model_name == 'ResNet_V2':
     args.img_size = (224, 224, 3)
 elif args.model_name == 'Inception_V3' or args.model_name == 'Inception_ResNet_v2':
     args.img_size = (299, 299, 3)
-elif args.model_name == 'EfficientNet_B7':
-    args.img_size = (600, 600, 3)
+elif args.model_name == 'EfficientNet_B5':
+    args.img_size = (456, 456, 3)
 else:
     raise ValueError('Incorrect MODEL_NAME, please change it!')
 
@@ -258,7 +262,7 @@ class DataProcessor():
         Args:
             path_to_data: string representing path to xlsx dataset info
         """
-        # TODO: nrows=500
+        # # TODO: Checkpoint (nrows=500)
         source_df = pandas.read_excel(path_to_data, index_col=None, na_values=['NA'], usecols="B:AM")
         path_df = source_df['Path']
         label_df = source_df[args.label_names]
@@ -430,8 +434,8 @@ class Net:
             model_url = "https://tfhub.dev/google/imagenet/inception_v3/classification/4"
         elif args.model_name == 'Inception_ResNet_v2':
             model_url = "https://tfhub.dev/google/imagenet/inception_resnet_v2/classification/4"
-        elif args.model_name == 'EfficientNet_B7':
-            model_url = 'https://tfhub.dev/google/efficientnet/b7/feature-vector/1'
+        elif args.model_name == 'EfficientNet_B5':
+            model_url = 'https://tfhub.dev/google/efficientnet/b5/feature-vector/1'
         else:
             raise ValueError('Incorrect MODEL_TYPE value, please check it!')
 
@@ -542,6 +546,7 @@ class Net:
                       epochs=args.epochs,
                       learning_rate=args.learning_rate,
                       trainable_backbone=args.is_trainable)
+        # TODO: Checkpoint
         wandb.init(project='tavr', dir=args.train_model_dir, name=run_name, sync_tensorboard=True, config=params)
         wandb.config.update(params)
 
@@ -919,14 +924,16 @@ if __name__ == '__main__':
         model_output = net.test_model(test_model_dir=args.test_model_dir, test_files=args.test_files)
         images, labels, probs, coords = net.process_predictions(model_output=model_output, test_files=args.test_files,
                                                                 thresh_label=0.50, thresh_x=0.01, thresh_y=0.01)
-        net.save_to_video(images=images, labels=labels, probs=probs, coords=coords, save_dir='predictions_video',
-                          shape='star', add_label=True, add_prob=False, fps=7)
-        net.save_to_images(images=images, labels=labels, probs=probs, coords=coords, save_dir='predictions_image',
-                           shape='star', add_label=True, add_prob=True)
-        net.show_predictions(images=images, labels=labels, probs=probs, coords=coords, verbose=1, save_dir='predictions_plt',
-                             shape='star', add_label=True, add_prob=False)
+        if args.test_files[0].endswith('avi'):
+            net.save_to_video(images=images, labels=labels, probs=probs, coords=coords, save_dir='video_predictions',
+                              shape='star', add_label=True, add_prob=True, fps=7)
+        else:
+            net.save_to_images(images=images, labels=labels, probs=probs, coords=coords, save_dir='image_predictions',
+                               shape='star', add_label=True, add_prob=True)
+            net.show_predictions(images=images, labels=labels, probs=probs, coords=coords, verbose=1, save_dir='plt_predictions',
+                                 shape='star', add_label=True, add_prob=False)
     else:
         raise ValueError('Incorrect MODE value, please check it!')
     print('-' * 100)
-    print(MODE.capitalize() + 'ing is finished!')
+    print(args.mode.capitalize() + 'ing is finished!')
     print('-' * 100)
