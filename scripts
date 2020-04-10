@@ -6,7 +6,7 @@ python main.py -mo=train -mn=MobileNet_V2; python main.py -mo=train -mn=MobileNe
 python main.py -mo=train -mn=ResNet_V2; python main.py -mo=train -mn=ResNet_V2 -ist
 python main.py -mo=train -mn=Inception_V3; python main.py -mo=train -mn=Inception_V3 -ist
 python main.py -mo=train -mn=Inception_ResNet_v2; python main.py -mo=train -mn=Inception_ResNet_v2 -ist
-python main.py -mo=train -mn=EfficientNet_B7; python main.py -mo=train -mn=EfficientNet_B7 -ist
+python main.py -mo=train -mn=EfficientNet_B5; python main.py -mo=train -mn=EfficientNet_B5 -ist
 
 2. Testing model
 python main.py -mo=test -tmd=models/MobileNet_V2_0804_1056
