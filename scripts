@@ -9,4 +9,7 @@ python main.py -mo=train -mn=Inception_ResNet_v2; python main.py -mo=train -mn=I
 python main.py -mo=train -mn=EfficientNet_B5; python main.py -mo=train -mn=EfficientNet_B5 -ist
 
 2. Testing model
-python main.py -mo=test -tmd=models/MobileNet_V2_0804_1056
+python main.py -mo=test -tmd=models/MobileNet_V2 -tf=data/video/001.avi
+python main.py -mo=test -tmd=models/ResNet_V2 -tf=data/video/001.avi
+python main.py -mo=test -tmd=models/ResNet_V2 -tf=data/video/004.avi
+python main.py -mo=test -tmd=models/ResNet_V2 -tf=data/video/016.avi
