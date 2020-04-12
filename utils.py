@@ -13,6 +13,7 @@ import tensorflow_addons as tfa
 import matplotlib.pyplot as plt
 import matplotlib.style as style
 from sklearn.metrics import f1_score
+
 def convert_images_to_video(model_dir, images_prefix, add_note, fps, save_dir):
     if not os.path.isdir(save_dir):
         os.makedirs(save_dir)
@@ -335,26 +336,28 @@ def perfomance_grid(ds, target, label_names, model, save_dir, n_thresh=100):
     grid.to_excel(grid_name, sheet_name='Perfomance', index=True, startrow=0, startcol=0)
     return grid
 
-def pull_video_to_wandb(project, run_name, video_dir, fps, models_dir = 'models'):
+def pull_video_to_wandb(project, run_name, video_dir, fps, prefix, models_dir = 'models'):
     run_folder = os.path.join(models_dir, run_name, 'wandb')
     dir_list = os.listdir(run_folder)
-    # run_id = dir_list[1]
-    # run_id = run_id.split('-')
-    # run_id = run_id[2]
+    dir_list.sort()
+    run_id = dir_list[1]
+    run_id = run_id.split('-')
+    run_id = run_id[2]
     wandb.init(entity='viacheslav_danilov',
                project=project,
-               # id=run_id,
+               id=run_id,
                name=run_name,
                resume=True)
     video_paths = glob(os.path.join(video_dir, run_name) + '/*.avi')
     for idx, video_path in enumerate(video_paths):
         video = convert_video_to_ndarray(video_path)
-        wandb.log({"V" + str(idx+1) + '_' + run_name: wandb.Video(data_or_path=video, fps=fps, format='mp4')}, commit=False)
+        # TODO: Checkpoint
+        wandb.log({prefix + str(idx+1) + '_' + run_name: wandb.Video(data_or_path=video, fps=fps, format='mp4')}, commit=False)
     print('Pulling to WANDB complete!')
 
 def convert_video_to_ndarray(video_path):
     cap = cv2.VideoCapture(video_path)
-    num_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))             # TODO: num_frames-1
+    num_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     video = np.empty(shape=(num_frames, frame_height, frame_width, 3), dtype=np.dtype('uint8'))
@@ -368,26 +371,67 @@ def convert_video_to_ndarray(video_path):
     video = np.swapaxes(video, axis1=2, axis2=3)
     return video
 
+def crop_video(input_path, y1, y2, x1, x2, output_dims, save_dir):
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    # Video reader
+    cap = cv2.VideoCapture(input_path)
+    num_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = int(cap.get(cv2.CAP_PROP_FPS))
+    video = np.empty(shape=(num_frames, frame_height, frame_width, 3), dtype=np.dtype('uint8'))
+
+    # Video writer
+    basename = os.path.split(input_path)[-1]
+    fourcc = cv2.VideoWriter_fourcc(*'DIVX')
+    video_path = os.path.join(save_dir, basename)
+    video_writer = cv2.VideoWriter(filename=video_path, fourcc=fourcc, fps=fps, frameSize=output_dims)
+
+    frame_counter = 0
+    ret = True
+    while (frame_counter < num_frames and ret):
+        ret, frame = cap.read()
+        # frame = frame[0:896, 485:1380]
+        frame = frame[y1:y2, x1:x2]
+        frame = cv2.resize(frame, output_dims, interpolation=cv2.INTER_AREA)
+        video_writer.write(frame)
+        frame_counter += 1
+    video_writer.release()
+    cap.release()
+
+
 # ------------------------------------------------------- Handler ------------------------------------------------------
 if __name__ == '__main__':
     # Extract images from video
-    # extract_images_from_video(video_dir='data/video', output_dims=(1000, 1000), save_freq=1, save_dir='data/temp')
+    # extract_images_from_video(video_dir='data/video2', output_dims=(1000, 1000), save_freq=1, save_dir='data/temp2')
+
+    # Crop video
+    # input_path = 'data/video2/006.avi'
+    # input_paths = glob('data/video2/*.avi')
+    # for input_path in tqdm(input_paths):
+        # crop_video(input_path=input_path, y1=0, y2=896, x1=484, x2=1380, output_dims=(1000, 1000), save_dir='data/temp2')
+    # crop_video(input_path='data/video2/066.avi', y1=1, y2=856, x1=11, x2=906, output_dims=(1000, 1000), save_dir='data/temp2')
 
     # Get XLSX data file using annotations and images
     # convert_json_to_xlsx(ann_dir='data/ann', img_dir='data/img', save_dir='data')
 
     # Convert callback images to video
-    # ids = ['003_007', '003_034', '004_002', '004_013', '005_003', '005_007', '005_022', '008_030', '008_045', '009_003',
-    #        '009_023', '010_006', '010_031', '012_032', '012_063', '014_050', '014_110', '016_070', '016_180', '017_103']
-    ids = ['003_007', '004_013', '009_003']
-    model_dirs = ['MobileNet_V2_0904_0214', 'ResNet_V2_0904_0756']
+    model_dirs = ['MobileNet_V2', 'MobileNet_V2_ft', 'ResNet_V2', 'ResNet_V2_ft', 'Inception_V3', 'Inception_V3_ft',
+                  'Inception_ResNet_V2', 'Inception_ResNet_V2_ft', 'EfficientNet_B5']
+    video_dir = 'video_training_all'            # video_training, video_predictions
+    ids = ['003_007', '003_034', '004_002', '004_013', '005_003', '005_007', '005_022', '008_030', '008_045', '009_003',
+           '009_023', '010_006', '010_031', '012_032', '012_063', '014_050', '014_110', '016_070', '016_180', '017_103']
+    # run_names = model_dirs = ['MobileNet_V2_ft']
+    # video_dir = 'video_predictions'            # video_training, video_predictions
+    # ids = ['003_007', '004_013', '009_003']
     for model_dir in model_dirs:
         for id in ids:
             convert_images_to_video(model_dir=model_dir, images_prefix=id, fps=8, add_note=True,
-                                    save_dir=os.path.join('video_training', model_dir))
+                                    save_dir=os.path.join(video_dir, model_dir))
 
     # Pull video to WANDB server
-    run_names = ['MobileNet_V2_0904_0214', 'ResNet_V2_0904_0756']
-    video_dir = 'video_training'
-    for run_name in run_names:
-        pull_video_to_wandb(project='temp', run_name=run_name, video_dir=video_dir, fps=7)
+    # for run_name in run_names:
+    #     pull_video_to_wandb(project='tavr', run_name=run_name, video_dir=video_dir, fps=8, prefix='VP')
+
