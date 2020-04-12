@@ -24,7 +24,7 @@ from utils import get_random_dcm, f1_loss, macro_f1, get_timing, perfomance_grid
 # --------------------------------------------------- Main parameters --------------------------------------------------
 # Training
 MODE = 'train'
-MODEL_NAME = 'EfficientNet_B5'
+MODEL_NAME = 'MobileNet_V2'
 BATCH_SIZE = 64
 LR = 1e-5
 EPOCHS = 100                    # TODO: Checkpoint
@@ -33,10 +33,10 @@ LABEL_LOSS = 'bce'
 LABEL_LOSS_WEIGHT = 1.0
 POINT_LOSS = 'logcosh'
 POINT_LOSS_WEIGHT = 10.0
-IS_TRAINABLE = False
+IS_TRAINABLE = False            # TODO: Checkpoint
 
 # Testing
-TEST_MODEL_DIR = 'models/ResNet_V2_0904_0756'
+TEST_MODEL_DIR = 'models/ResNet_V2'
 TEST_FILES = ['data/video/004.avi']     # 001, 004, 016
 VERBOSE = 1
 # TEST_FILES = ['data/img/001_025.png', 'data/img/002_028.png', 'data/img/003_032.png', 'data/img/004_016.png']
@@ -926,7 +926,7 @@ if __name__ == '__main__':
                                                                 thresh_label=0.50, thresh_x=0.01, thresh_y=0.01)
         if args.test_files[0].endswith('avi'):
             net.save_to_video(images=images, labels=labels, probs=probs, coords=coords, save_dir='video_predictions',
-                              shape='star', add_label=True, add_prob=True, fps=7)
+                              shape='star', add_label=True, add_prob=True, fps=8)
         else:
             net.save_to_images(images=images, labels=labels, probs=probs, coords=coords, save_dir='image_predictions',
                                shape='star', add_label=True, add_prob=True)
