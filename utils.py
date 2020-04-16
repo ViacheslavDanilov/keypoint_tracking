@@ -146,11 +146,11 @@ def extract_images_from_video(video_dir, output_dims, save_freq, save_dir):
         pbar.set_description("Processing %s" % file_name)
         print('\n{0:d} images saved for {1:s}'.format(i, file_name))
 
-def get_random_dcm(dir):
-    dcm = os.path.join(dir, random.choice(os.listdir(dir)))
-    while os.path.isdir(dcm):
-        dcm = os.path.join(dcm, random.choice(os.listdir(dcm)))
-    return dcm
+def get_random_img(dir):
+    img = os.path.join(dir, random.choice(os.listdir(dir)))
+    while os.path.isdir(img):
+        img = os.path.join(img, random.choice(os.listdir(img)))
+    return img
 
 def macro_f1(y_true, y_pred, thresh=0.5):
     """Compute the macro F1-score on a batch of observations (average F1 across label)
@@ -423,7 +423,7 @@ if __name__ == '__main__':
     video_dir = 'video_training_all'            # video_training, video_predictions
     ids = ['003_007', '003_034', '004_002', '004_013', '005_003', '005_007', '005_022', '008_030', '008_045', '009_003',
            '009_023', '010_006', '010_031', '012_032', '012_063', '014_050', '014_110', '016_070', '016_180', '017_103']
-    # run_names = model_dirs = ['MobileNet_V2_ft']
+    # run_names = model_dirs = ['MobileNet_V2']
     # video_dir = 'video_predictions'            # video_training, video_predictions
     # ids = ['003_007', '004_013', '009_003']
     for model_dir in model_dirs:
