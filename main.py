@@ -19,12 +19,12 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MultiLabelBinarizer
 from tensorflow.keras import layers, models, optimizers, losses, metrics
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
-from utils import get_random_dcm, f1_loss, macro_f1, get_timing, perfomance_grid
+from utils import get_random_img, f1_loss, macro_f1, get_timing, perfomance_grid
 
 # --------------------------------------------------- Main parameters --------------------------------------------------
 # Training
 MODE = 'train'
-MODEL_NAME = 'MobileNet_V2'
+MODEL_NAME = 'ResNet_V2'
 BATCH_SIZE = 64
 LR = 1e-5
 EPOCHS = 100                    # TODO: Checkpoint
@@ -395,7 +395,7 @@ class Net:
             f.write(model.to_json())
         end = time.time()
         img_path = os.path.join(args.train_model_dir, args.model_name + '.png')
-        # tf.keras.utils.plot_model(model, to_file=img_path, show_shapes=True)
+        tf.keras.utils.plot_model(model, to_file=img_path, show_shapes=True)
         print('Saving of the model architecture takes ({:1.3f} seconds)'.format(end - start))
         print('-' * 100)
 
